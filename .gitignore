@@ -1,0 +1,29 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI config (actual files in .priv-storage/, root has symlinks)
+.priv-storage/
+CLAUDE.md
+.cursorrules
+.claude
+.vscode
+WORK_STATUS.md
+
+# Backup toolkit temp files
+tmp-igbkp/.work/
+tmp-igbkp/output/
+
+# Environment
+.env
+.env.local

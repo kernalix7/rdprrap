@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ─── Linux: lint, format, test (non-Windows code paths) ───
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (Linux)
+        run: cargo clippy --all-targets
+      - name: Test (Linux)
+        run: cargo test
+
+  # ─── Windows: build + test matrix (x64, x86) × (debug, release) ───
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-msvc
+        profile:
+          - debug
+          - release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-${{ matrix.profile }}
+
+      - name: Build (${{ matrix.profile }})
+        run: |
+          $args = @("build", "--target", "${{ matrix.target }}")
+          if ("${{ matrix.profile }}" -eq "release") { $args += "--release" }
+          cargo @args
+
+      - name: Clippy (${{ matrix.target }})
+        run: cargo clippy --target ${{ matrix.target }} --all-targets
+
+      - name: Test (${{ matrix.target }})
+        run: cargo test --target ${{ matrix.target }}
+
+      # ── DLL export verification (release only) ──
+      - name: Verify DLL exports
+        if: matrix.profile == 'release'
+        shell: pwsh
+        run: |
+          $base = "target/${{ matrix.target }}/release"
+
+          # Determine expected arch from target
+          if ("${{ matrix.target }}" -like "x86_64*") {
+            $expectedArch = "x64"
+          } else {
+            $expectedArch = "x86"
+          }
+
+          # --- TermWrap ---
+          $dll = "$base/termwrap_dll.dll"
+          if (!(Test-Path $dll)) { Write-Error "termwrap_dll.dll not found"; exit 1 }
+          $exports = & dumpbin /exports $dll | Out-String
+          if ($exports -notmatch "ServiceMain") {
+            Write-Error "termwrap_dll.dll missing ServiceMain export"
+            exit 1
+          }
+          if ($exports -notmatch "SvchostPushServiceGlobals") {
+            Write-Error "termwrap_dll.dll missing SvchostPushServiceGlobals export"
+            exit 1
+          }
+          Write-Host "termwrap_dll.dll exports: OK"
+
+          # --- EndpWrap ---
+          $dll = "$base/endpwrap_dll.dll"
+          if (!(Test-Path $dll)) { Write-Error "endpwrap_dll.dll not found"; exit 1 }
+          $exports = & dumpbin /exports $dll | Out-String
+          if ($exports -notmatch "GetTSAudioEndpointEnumeratorForSession") {
+            Write-Error "endpwrap_dll.dll missing GetTSAudioEndpointEnumeratorForSession export"
+            exit 1
+          }
+          if ($exports -notmatch "DllGetClassObject") {
+            Write-Error "endpwrap_dll.dll missing DllGetClassObject export"
+            exit 1
+          }
+          if ($exports -notmatch "DllCanUnloadNow") {
+            Write-Error "endpwrap_dll.dll missing DllCanUnloadNow export"
+            exit 1
+          }
+          Write-Host "endpwrap_dll.dll exports: OK"
+
+          # --- UmWrap (no managed exports — DllMain only) ---
+          $dll = "$base/umwrap_dll.dll"
+          if (!(Test-Path $dll)) { Write-Error "umwrap_dll.dll not found"; exit 1 }
+          Write-Host "umwrap_dll.dll exists: OK"
+
+          # --- Verify PE architecture ---
+          foreach ($name in @("termwrap_dll.dll", "endpwrap_dll.dll", "umwrap_dll.dll")) {
+            $info = & dumpbin /headers "$base/$name" | Out-String
+            if ($expectedArch -eq "x64" -and $info -notmatch "machine \(x64\)") {
+              Write-Error "$name is not x64"
+              exit 1
+            }
+            if ($expectedArch -eq "x86" -and $info -notmatch "machine \(x86\)") {
+              Write-Error "$name is not x86"
+              exit 1
+            }
+          }
+          Write-Host "PE architecture ($expectedArch): OK"
+
+          # --- DLL file size sanity check (must be > 10KB, < 5MB) ---
+          foreach ($name in @("termwrap_dll.dll", "endpwrap_dll.dll", "umwrap_dll.dll")) {
+            $size = (Get-Item "$base/$name").Length
+            if ($size -lt 10240) {
+              Write-Error "$name is suspiciously small ($size bytes)"
+              exit 1
+            }
+            if ($size -gt 5242880) {
+              Write-Error "$name is suspiciously large ($size bytes)"
+              exit 1
+            }
+            Write-Host "$name size: $([math]::Round($size/1024))KB OK"
+          }
+
+      # ── Upload release artifacts ──
+      - name: Upload artifacts
+        if: matrix.profile == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdprrap-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/*.dll
+            target/${{ matrix.target }}/release/offset-finder.exe
+
+  # ─── Dependency audit ───
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies
+        run: cargo audit
+
+  # ─── Bytecode verification test ───
+  bytecode-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run bytecode + disassembly tests
+        run: cargo test -p patcher -- --nocapture
+      - name: Verify no Mnemonic::Jz/Jnz in source
+        run: |
+          if grep -rn 'Mnemonic::Jz\b\|Mnemonic::Jnz\b' crates/; then
+            echo "ERROR: Found invalid Mnemonic::Jz or Mnemonic::Jnz (use Je/Jne)"
+            exit 1
+          fi
+          echo "No invalid mnemonic references found: OK"
+      - name: Verify SAFETY comments on all unsafe blocks
+        run: |
+          # Find unsafe blocks without a preceding SAFETY comment (within 2 lines)
+          count=0
+          while IFS= read -r file; do
+            if grep -n 'unsafe {' "$file" | while read -r line; do
+              lineno=$(echo "$line" | cut -d: -f1)
+              # Check the 3 lines before the unsafe block for SAFETY comment
+              start=$((lineno > 3 ? lineno - 3 : 1))
+              context=$(sed -n "${start},${lineno}p" "$file")
+              if ! echo "$context" | grep -qi 'SAFETY'; then
+                echo "WARNING: $file:$lineno — unsafe block without SAFETY comment"
+                count=$((count + 1))
+              fi
+            done; then true; fi
+          done < <(find crates/ -name '*.rs' -not -path '*/target/*')
+          # Non-blocking: just report, don't fail (some unsafe blocks inherit safety from caller)
+          echo "Unsafe blocks without nearby SAFETY comment: $count"

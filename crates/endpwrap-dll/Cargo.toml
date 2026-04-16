@@ -1,0 +1,14 @@
+[package]
+name = "endpwrap-dll"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "rdpendp.dll proxy DLL — audio recording redirection"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+patcher = { path = "../patcher" }
+iced-x86 = { workspace = true }
+windows = { workspace = true }

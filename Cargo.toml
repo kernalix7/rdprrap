@@ -1,0 +1,39 @@
+[workspace]
+members = [
+    "crates/patcher",
+    "crates/termwrap-dll",
+    "crates/umwrap-dll",
+    "crates/endpwrap-dll",
+    "crates/offset-finder",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# Disassembler - pure Rust x86/x64 decoder
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel"] }
+
+# PE parsing
+pelite = "0.10"
+
+# Windows API
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_Security",
+] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
