@@ -13,6 +13,9 @@ Rust로 재작성한 RDP Wrapper.
 | **endpwrap-dll** | 오디오 녹음 리다이렉션 (TSAudioCaptureAllowed) |
 | **patcher** | 공유 라이브러리 — PE 파싱, x86/x64 디스어셈블리, 런타임 패턴 매칭, 검증된 바이트코드 패치 14개 |
 | **offset-finder** | 독립 실행형 CLI 오프셋 탐색 도구 (pelite 기반, PDB 불필요) |
+| **rdprrap-installer** | 설치/제거 CLI — 서비스 등록, 레지스트리, 방화벽(TCP+UDP 3389), 코호트 서비스 재시작, 설치 디렉토리 ACL 강화 (Delphi `RDPWInst.exe` 대체) |
+| **rdprrap-check** | RDP 연결 테스터 — `mstsc.exe`로 127.0.0.2 루프백 접속, NLA 가드 RAII, 44개 종료 사유 코드 (`RDPCheck.exe` 대체) |
+| **rdprrap-conf** | 설정 GUI — native-windows-gui 패널로 진단 + 런타임 RDP 설정(Enable/Port/SingleSession/HideUsers/AllowCustom/AuthMode/Shadow) 제어 (`RDPConf.exe` 대체) |
 
 ## 기술 스택
 
@@ -45,11 +48,42 @@ cargo build --release
 
 ### 사용법
 
-1. 빌드된 DLL을 `%ProgramFiles%\RDP Wrapper\`에 복사
-2. 레지스트리 파일을 병합하여 svchost가 래퍼 DLL을 로드하도록 설정
-3. 재부팅
+관리자 권한 명령 프롬프트에서:
 
-자세한 설치 방법은 원본 [TermWrap](https://github.com/llccd/TermWrap)을 참조하세요 — DLL 인터페이스가 동일합니다.
+```powershell
+# 설치 — DLL 복사, 레지스트리 기록, 방화벽 개방(TCP+UDP 3389),
+# 설치 디렉토리 ACL 부여(SYSTEM + LocalService), TermService 코호트 재시작
+rdprrap-installer.exe install --source <빌드된-DLL-디렉토리>
+
+# 현재 상태 확인
+rdprrap-installer.exe status
+
+# 제거 — ServiceDll, AllowMultipleTSSessions, fDenyTSConnections,
+# AddIns 원상복구 + 방화벽 규칙 제거
+rdprrap-installer.exe uninstall
+```
+
+주요 플래그:
+
+| 플래그 | 효과 |
+|--------|------|
+| `--source DIR` | DLL을 복사할 디렉토리 (기본: 인스톨러 자신의 디렉토리) |
+| `--force` | ServiceDll이 이미 래퍼를 가리키고 있어도 강제 재설치 |
+| `--skip-firewall` | 방화벽 규칙 추가/제거 생략 |
+| `--skip-restart` | TermService 재시작 생략 (수동/재부팅 시 적용) |
+| `--disable-nla` | `UserAuthentication=0` 설정 (레거시 클라이언트용, 옵트인) |
+
+설치 후 두 개의 GUI를 `%ProgramFiles%\RDP Wrapper\`에서 실행:
+
+```powershell
+# 설정 패널 — 실시간 상태 + 런타임 설정 토글
+rdprrap-conf.exe
+
+# RDP 루프백 테스트 — NLA 가드 RAII로 보호된 mstsc /v:127.0.0.2 실행
+rdprrap-check.exe
+```
+
+수동 설치도 가능: DLL을 `%ProgramFiles%\RDP Wrapper\`에 복사하고 레지스트리 파일을 병합하세요. DLL 인터페이스 레퍼런스는 원본 [TermWrap](https://github.com/llccd/TermWrap) 참조.
 
 ## 프로젝트 구조
 
@@ -66,9 +100,12 @@ rdprrap/
 │   │   └── src/patches/    # DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy
 │   ├── umwrap-dll/         # cdylib: umrdp.dll 프록시 (USB/카메라 리다이렉션)
 │   ├── endpwrap-dll/       # cdylib: rdpendp.dll 프록시 (오디오 녹음)
-│   └── offset-finder/      # 바이너리: 독립 오프셋 탐색 CLI
+│   ├── offset-finder/      # 바이너리: 독립 오프셋 탐색 CLI
+│   ├── rdprrap-installer/  # 바이너리: 설치/제거 CLI (레지스트리, 서비스, 방화벽, ACL)
+│   ├── rdprrap-check/      # 바이너리: RDP 루프백 테스터 (mstsc + NLA 가드)
+│   └── rdprrap-conf/       # 바이너리: 설정 GUI (native-windows-gui)
 ├── .github/
-│   └── workflows/ci.yml   # Linux 체크 + Windows x64/x86 빌드
+│   └── workflows/ci.yml   # Linux 체크 + Windows x64/x86 빌드 매트릭스
 └── docs/                   # 한국어 문서
 ```
 

@@ -13,6 +13,9 @@ RDP Wrapper rewritten in Rust.
 | **endpwrap-dll** | Audio recording redirection (TSAudioCaptureAllowed) |
 | **patcher** | Shared library — PE parsing, x86/x64 disassembly, runtime pattern matching, 14 verified bytecode patches |
 | **offset-finder** | Standalone CLI tool for offset detection (pelite-based, no PDB required) |
+| **rdprrap-installer** | Rust CLI installer/uninstaller — service registration, registry setup, firewall rules, cohort service restart, install-dir ACL hardening (replaces Delphi `RDPWInst.exe`) |
+| **rdprrap-check** | RDP connection tester — loopback `127.0.0.2` via `mstsc.exe`, NLA guard RAII, 44 disconnect-reason codes (replaces `RDPCheck.exe`) |
+| **rdprrap-conf** | Configuration GUI — native-windows-gui panel for diagnostics + runtime RDP settings (Enable/Port/SingleSession/HideUsers/AllowCustom/AuthMode/Shadow), replaces `RDPConf.exe` |
 
 ## Tech Stack
 
@@ -45,11 +48,43 @@ cargo build --release
 
 ### Usage
 
-1. Copy the built DLLs to `%ProgramFiles%\RDP Wrapper\`
-2. Merge the appropriate registry file to redirect svchost to load the wrapper DLL
-3. Reboot
+From an elevated (Administrator) command prompt on the target Windows host:
 
-See the original [TermWrap](https://github.com/llccd/TermWrap) for detailed install instructions — the DLL interface is identical.
+```powershell
+# Install — copies DLLs, writes registry, opens firewall (TCP+UDP 3389),
+# grants install-dir ACL (SYSTEM + LocalService), restarts TermService cohort
+rdprrap-installer.exe install --source <dir-containing-built-DLLs>
+
+# Check current state (ServiceDll, registry, firewall, termsrv.dll version)
+rdprrap-installer.exe status
+
+# Uninstall — restores original ServiceDll, AllowMultipleTSSessions,
+# fDenyTSConnections, AddIns, and removes firewall rules
+rdprrap-installer.exe uninstall
+```
+
+Additional flags:
+
+| Flag | Effect |
+|------|--------|
+| `--source DIR` | Directory to copy DLLs from (defaults to the installer's own directory) |
+| `--force` | Reinstall even if ServiceDll already points to the wrapper |
+| `--skip-firewall` | Do not add/remove firewall rules |
+| `--skip-restart` | Do not restart TermService (apply changes manually or on reboot) |
+| `--disable-nla` | Set `UserAuthentication=0` (opt-in, required for legacy clients) |
+| `-i` / `-u` | Legacy aliases for install / uninstall (RDPWInst compatibility) |
+
+After install, the two GUIs are launched from `%ProgramFiles%\RDP Wrapper\`:
+
+```powershell
+# Configuration panel — live state + runtime settings toggles
+rdprrap-conf.exe
+
+# Loopback RDP test — spawns mstsc /v:127.0.0.2 with NLA-guard RAII
+rdprrap-check.exe
+```
+
+Manual install (without `rdprrap-installer.exe`) remains possible — copy the DLLs into `%ProgramFiles%\RDP Wrapper\` and merge the appropriate registry file. See the original [TermWrap](https://github.com/llccd/TermWrap) for the DLL interface reference.
 
 ## Project Structure
 
@@ -66,9 +101,12 @@ rdprrap/
 │   │   └── src/patches/    # DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy
 │   ├── umwrap-dll/         # cdylib: umrdp.dll proxy (USB/camera redirection)
 │   ├── endpwrap-dll/       # cdylib: rdpendp.dll proxy (audio recording)
-│   └── offset-finder/      # Binary: standalone offset detection CLI
+│   ├── offset-finder/      # Binary: standalone offset detection CLI
+│   ├── rdprrap-installer/  # Binary: install/uninstall CLI (registry, service, firewall, ACL)
+│   ├── rdprrap-check/      # Binary: RDP loopback tester (mstsc + NLA guard)
+│   └── rdprrap-conf/       # Binary: configuration GUI (native-windows-gui)
 ├── .github/
-│   └── workflows/ci.yml   # Linux check + Windows x64/x86 build
+│   └── workflows/ci.yml   # Linux check + Windows x64/x86 build matrix
 └── docs/                   # Korean documentation
 ```
 
