@@ -1,0 +1,16 @@
+[package]
+name = "rdprrap-conf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust replacement for RDPConf.exe — GUI configuration tool for rdprrap"
+
+[[bin]]
+name = "rdprrap-conf"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true }
+anyhow = { workspace = true }
+native-windows-gui = { workspace = true }
+native-windows-derive = { workspace = true }

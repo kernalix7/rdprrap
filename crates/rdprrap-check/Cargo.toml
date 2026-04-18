@@ -1,0 +1,15 @@
+[package]
+name = "rdprrap-check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rdprrap-check"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true }
+anyhow = { workspace = true }
+native-windows-gui = { workspace = true }
+native-windows-derive = { workspace = true }

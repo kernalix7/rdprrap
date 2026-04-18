@@ -1,0 +1,33 @@
+[package]
+name = "rdprrap-installer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Installer/uninstaller for rdprrap wrapper DLLs (registry + service + firewall setup)"
+
+[[bin]]
+name = "rdprrap-installer"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+# Extra security/authz + environment features beyond the workspace default.
+# (These are additive features on the same windows crate version.)
+#
+#   Win32_Security_Authorization   — SetEntriesInAclW / SDDL parsing (H3 ACLs)
+#   Win32_System_Environment       — ExpandEnvironmentStringsW
+#   Win32_System_IO                — OVERLAPPED (required by `WriteFile` in
+#                                    the race-safe copy path used by
+#                                    `install::copy_wrapper_dlls` — M1).
+#
+# Version-resource APIs (GetFileVersionInfoSizeW / VerQueryValueW — H2) are
+# dynamic-loaded from `version.dll` at runtime via GetProcAddress, matching
+# the pattern in `rdprrap-conf`, so no extra Cargo feature is required.
+windows = { workspace = true, features = [
+    "Win32_Security_Authorization",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+] }

@@ -5,6 +5,9 @@ members = [
     "crates/umwrap-dll",
     "crates/endpwrap-dll",
     "crates/offset-finder",
+    "crates/rdprrap-installer",
+    "crates/rdprrap-check",
+    "crates/rdprrap-conf",
 ]
 resolver = "2"
 
@@ -31,9 +34,27 @@ windows = { version = "0.58", features = [
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
+    "Win32_System_Services",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_ProcessStatus",
+    "Win32_System_RemoteDesktop",
     "Win32_Security",
+    "Win32_NetworkManagement_WindowsFirewall",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
 ] }
 
 # Error handling
 anyhow = "1"
 thiserror = "2"
+
+# CLI argument parsing (used by rdprrap-installer)
+clap = { version = "4.5", features = ["derive"] }
+
+# GUI (rdprrap-conf)
+native-windows-gui = "1.0"
+native-windows-derive = "1.0"
