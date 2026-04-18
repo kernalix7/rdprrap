@@ -105,15 +105,14 @@ pub unsafe fn apply(
                         && inner_inst.len() <= 7
                         && inner_inst.op0_kind() == OpKind::Memory
                         && inner_inst.memory_segment() == Register::DS
+                        && inner_inst.memory_displacement64() == (base + vv_rva) as u64
                     {
-                        if inner_inst.memory_displacement64() == (base + vv_rva) as u64 {
-                            // Replace with pop eax; add esp, 12; nop padding
-                            let patch = &bytecodes::SINGLEUSER_X86_POP[..inner_inst.len()];
-                            if let Err(e) = unsafe { write_patch(patch_ip, patch) } {
-                                debug_log(&format!("SingleUserPatch write failed: {e}\n"));
-                            }
-                            return true;
+                        // Replace with pop eax; add esp, 12; nop padding
+                        let patch = &bytecodes::SINGLEUSER_X86_POP[..inner_inst.len()];
+                        if let Err(e) = unsafe { write_patch(patch_ip, patch) } {
+                            debug_log(&format!("SingleUserPatch write failed: {e}\n"));
                         }
+                        return true;
                     }
                 }
 

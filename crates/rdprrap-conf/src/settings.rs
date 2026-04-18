@@ -27,10 +27,12 @@ pub enum AuthMode {
 
 impl AuthMode {
     pub fn from_registry(security_layer: u32, user_auth: u32) -> Self {
-        match (security_layer, user_auth) {
-            (0, _) => AuthMode::GuiOnly,
-            (2, _) | (_, 1) => AuthMode::NetworkLevel,
-            _ => AuthMode::Default,
+        if security_layer == 0 && user_auth == 0 {
+            AuthMode::GuiOnly
+        } else if user_auth != 0 || security_layer >= 2 {
+            AuthMode::NetworkLevel
+        } else {
+            AuthMode::Default
         }
     }
 

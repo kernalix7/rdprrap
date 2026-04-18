@@ -384,6 +384,7 @@ fn resolve_functions_x64(
 /// x86: resolve function addresses by scanning .text for function prologues
 /// and PUSH/MOV immediate references to string RVAs
 #[cfg(target_arch = "x86")]
+#[allow(clippy::too_many_arguments)]
 fn resolve_functions_x86(
     pe: &LoadedPe,
     cdefpolicy_query_rva: Option<usize>,
@@ -487,19 +488,17 @@ fn resolve_functions_x86(
                 decoder.decode_out(&mut inst);
 
                 // Check PUSH imm32 (5 bytes) or MOV reg/mem, imm32
-                let target_val = if inst.len() == 5
+                let is_push_imm32 = inst.len() == 5
                     && inst.mnemonic() == Mnemonic::Push
-                    && inst.op0_kind() == OpKind::Immediate32
-                {
-                    Some((inst.immediate32() as usize).wrapping_sub(base))
-                } else if inst.mnemonic() == Mnemonic::Mov
+                    && inst.op0_kind() == OpKind::Immediate32;
+                let is_mov_imm32 = inst.mnemonic() == Mnemonic::Mov
                     && inst.op1_kind() == OpKind::Immediate32
                     && ((inst.op0_kind() == OpKind::Register && inst.len() == 5)
                         || (inst.op0_kind() == OpKind::Memory
                             && inst.len() >= 7
                             && (inst.memory_base() == Register::EBP
-                                || inst.memory_base() == Register::ESP)))
-                {
+                                || inst.memory_base() == Register::ESP)));
+                let target_val = if is_push_imm32 || is_mov_imm32 {
                     Some((inst.immediate32() as usize).wrapping_sub(base))
                 } else {
                     None

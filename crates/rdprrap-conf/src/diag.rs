@@ -109,22 +109,24 @@ fn classify_wrapper(service_dll: Option<&str>) -> (WrapperState, Option<String>)
         return (WrapperState::Unknown, None);
     };
     let lower = path.to_ascii_lowercase();
-    // Detection priority:
-    //   1. rdprrap-owned DLLs (termwrap / paths under "rdp wrapper" / "rdprrap")
-    //   2. original rdpwrap.dll
+    // Detection priority (filename first, then directory fallback):
+    //   1. rdpwrap.dll filename — original stascorp/rdpwrap (must precede
+    //      "rdp wrapper" directory check, since both share that directory)
+    //   2. termwrap.dll filename or rdprrap-specific directory — our install
     //   3. stock termsrv.dll
     //   4. anything else is a 3rd-party library
-    let state =
-        if lower.contains("termwrap") || lower.contains("rdprrap") || lower.contains("rdp wrapper")
-        {
-            WrapperState::Installed
-        } else if lower.contains("rdpwrap.dll") {
-            WrapperState::InstalledRdpWrap
-        } else if lower.ends_with("\\termsrv.dll") || lower.ends_with("/termsrv.dll") {
-            WrapperState::NotInstalled
-        } else {
-            WrapperState::ThirdParty
-        };
+    let state = if lower.contains("rdpwrap.dll") {
+        WrapperState::InstalledRdpWrap
+    } else if lower.contains("termwrap")
+        || lower.contains("rdprrap")
+        || lower.contains("rdp wrapper")
+    {
+        WrapperState::Installed
+    } else if lower.ends_with("\\termsrv.dll") || lower.ends_with("/termsrv.dll") {
+        WrapperState::NotInstalled
+    } else {
+        WrapperState::ThirdParty
+    };
 
     // Only attempt to read a file version when the ServiceDll is *not* stock.
     // Reading stock termsrv.dll's version belongs in `termsrv_version`, not here.

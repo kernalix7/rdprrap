@@ -249,17 +249,16 @@ pub unsafe fn apply(
         }
         // PUSH imm32 / MOV reg, imm32 — check for policy string reference
         else if inst.len() == 5 {
-            let target_val =
-                if inst.mnemonic() == Mnemonic::Push && inst.op0_kind() == OpKind::Immediate32 {
-                    Some((inst.immediate32() as usize).wrapping_sub(base))
-                } else if inst.mnemonic() == Mnemonic::Mov
-                    && inst.op0_kind() == OpKind::Register
-                    && inst.op1_kind() == OpKind::Immediate32
-                {
-                    Some((inst.immediate32() as usize).wrapping_sub(base))
-                } else {
-                    None
-                };
+            let is_push_imm32 =
+                inst.mnemonic() == Mnemonic::Push && inst.op0_kind() == OpKind::Immediate32;
+            let is_mov_reg_imm32 = inst.mnemonic() == Mnemonic::Mov
+                && inst.op0_kind() == OpKind::Register
+                && inst.op1_kind() == OpKind::Immediate32;
+            let target_val = if is_push_imm32 || is_mov_reg_imm32 {
+                Some((inst.immediate32() as usize).wrapping_sub(base))
+            } else {
+                None
+            };
 
             if let Some(tv) = target_val {
                 if policy_rvas.contains(&tv) {
