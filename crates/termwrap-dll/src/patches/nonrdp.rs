@@ -1,4 +1,4 @@
-use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
+use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic};
 use patcher::patch::{bytecodes, debug_log, write_patch};
 use patcher::pe::LoadedPe;
 
@@ -33,7 +33,7 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize, target_rva: usize) -> bool {
             }
 
             // Replace the call with: inc [ecx]; xor eax,eax; nop
-            let patch_addr = (inst.ip() as usize);
+            let patch_addr = inst.ip() as usize;
             if let Err(e) = unsafe { write_patch(patch_addr, bytecodes::NONRDP_PATCH) } {
                 debug_log(&format!("NonRDPPatch write failed: {e}\n"));
                 return false;

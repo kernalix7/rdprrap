@@ -191,12 +191,11 @@ pub unsafe fn apply_patches(hmod: HMODULE) {
                 {
                     let func_table = pe.get_exception_table().unwrap_or_default();
                     let mut found = false;
-                    for i in addrs.is_appserver_idx..func_table.len() {
+                    for func in func_table.iter().skip(addrs.is_appserver_idx) {
                         if let Some(is_appserver_rva) = is_appserver_rva {
-                            if search_xref_in_function(&pe, &func_table[i], is_appserver_rva as u64)
-                                .is_some()
+                            if search_xref_in_function(&pe, func, is_appserver_rva as u64).is_some()
                             {
-                                let bt = pe.backtrace_function(&func_table[i]);
+                                let bt = pe.backtrace_function(func);
                                 if unsafe {
                                     nonrdp::apply(&pe, nonrdp_addr, bt.begin_address as usize)
                                 } {
@@ -281,6 +280,7 @@ fn find_verify_version_import(pe: &LoadedPe, imports: &[patcher::pe::ImportInfo]
 
 /// x64: resolve all function addresses by scanning exception table for xrefs
 #[cfg(target_arch = "x86_64")]
+#[allow(clippy::too_many_arguments)]
 fn resolve_functions_x64(
     pe: &LoadedPe,
     cdefpolicy_query_rva: Option<usize>,

@@ -141,7 +141,7 @@ pub unsafe fn apply(
 
 /// Check if a CALL instruction targets memset via an import thunk.
 /// Follows the pattern: CALL → JMP [import_thunk] → memset
-fn is_call_to_memset(inst: &Instruction, pe: &LoadedPe, memset_abs: u64) -> bool {
+fn is_call_to_memset(inst: &Instruction, _pe: &LoadedPe, memset_abs: u64) -> bool {
     if inst.mnemonic() != Mnemonic::Call || !patcher::disasm::is_near_branch(inst) {
         return false;
     }

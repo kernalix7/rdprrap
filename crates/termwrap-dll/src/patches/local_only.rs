@@ -1,4 +1,4 @@
-use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind};
+use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic};
 use patcher::patch::{bytecodes, debug_log, write_patch};
 use patcher::pe::LoadedPe;
 

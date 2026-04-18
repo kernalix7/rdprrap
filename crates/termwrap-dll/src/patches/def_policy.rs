@@ -153,13 +153,12 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize) {
 /// # Safety
 /// Threads must be suspended, addresses must be valid
 unsafe fn apply_defpolicy_patch(
-    pe: &LoadedPe,
+    _pe: &LoadedPe,
     cmp_ip: usize,
     last_inst_length: usize,
     reg1: Register,
     reg2: Register,
 ) {
-    let base = pe.adjusted_base;
     let mut next_inst = Instruction::default();
 
     // Decode the CMP instruction to get its length, then check the conditional jump after it
@@ -201,6 +200,7 @@ unsafe fn apply_defpolicy_patch(
 }
 
 /// Select the correct patch bytecode based on register combination
+#[cfg_attr(not(target_arch = "x86"), allow(unused_variables))]
 fn select_defpolicy_bytes(reg1: Register, reg2: Register, is_jnz: bool) -> Option<&'static [u8]> {
     #[cfg(target_arch = "x86_64")]
     {

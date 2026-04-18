@@ -36,6 +36,10 @@ pub unsafe fn find_property_device_addr(
                 && inst.op0_kind() == OpKind::Register
                 && inst.op1_kind() == OpKind::Memory
             {
+                // Two resolution paths (RIP-relative vs DS-absolute) are kept
+                // distinct for readability even though iced-x86 returns an
+                // already-resolved address in both cases.
+                #[allow(clippy::if_same_then_else)]
                 let resolved = if inst.memory_base() == Register::RIP {
                     inst.memory_displacement64() // iced-x86: already resolved for RIP-relative
                 } else if inst.memory_segment() == Register::DS
@@ -87,6 +91,7 @@ pub unsafe fn find_property_device_addr(
                 && inst.op0_register() == Register::RCX
                 && inst.op1_kind() == OpKind::Memory
             {
+                #[allow(clippy::if_same_then_else)]
                 let resolved = if inst.memory_base() == Register::RIP {
                     inst.memory_displacement64() // iced-x86: already resolved for RIP-relative
                 } else if inst.memory_segment() == Register::DS
@@ -204,7 +209,7 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize) {
                     if !decoder.can_decode() {
                         break;
                     }
-                    let and_ip = decoder.ip() as usize;
+                    let _and_ip = decoder.ip() as usize;
                     decoder.decode_out(&mut inst);
 
                     if inst.mnemonic() != Mnemonic::And
@@ -255,12 +260,8 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize) {
                     let target = inst.near_branch_target() as usize;
                     let target_code =
                         unsafe { std::slice::from_raw_parts(target as *const u8, 15) };
-                    let mut target_decoder = Decoder::with_ip(
-                        bits as u32,
-                        target_code,
-                        target as u64,
-                        DecoderOptions::NONE,
-                    );
+                    let mut target_decoder =
+                        Decoder::with_ip(bits, target_code, target as u64, DecoderOptions::NONE);
                     let mut target_inst = Instruction::default();
 
                     if target_decoder.can_decode() {
@@ -375,7 +376,7 @@ pub fn read_setting(name: &str, default: u32) -> u32 {
             if query_result.is_ok() {
                 val = data;
             }
-            unsafe { RegCloseKey(hkey) };
+            let _ = unsafe { RegCloseKey(hkey) };
         }
     }
 

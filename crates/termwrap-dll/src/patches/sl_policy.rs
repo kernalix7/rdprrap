@@ -59,7 +59,7 @@ pub unsafe fn apply(
                 && inst.mnemonic() == Mnemonic::Mov
                 && inst.op0_kind() == OpKind::Memory
                 && inst.memory_base() == Register::RIP
-                && inst.memory_displacement_size() != 0
+                && inst.memory_displ_size() != 0
                 && inst.op1_kind() == OpKind::Register
                 && inst.op1_register() == Register::EAX
             {
@@ -77,7 +77,7 @@ pub unsafe fn apply(
             else if inst.mnemonic() == Mnemonic::Lea
                 && inst.op1_kind() == OpKind::Memory
                 && inst.memory_base() == Register::RIP
-                && inst.memory_displacement_size() != 0
+                && inst.memory_displ_size() != 0
                 && inst.op0_kind() == OpKind::Register
                 && inst.op0_register() == Register::RCX
             {
@@ -90,7 +90,7 @@ pub unsafe fn apply(
             else if inst.mnemonic() == Mnemonic::Mov
                 && inst.op0_kind() == OpKind::Memory
                 && inst.memory_base() == Register::RIP
-                && inst.memory_displacement_size() != 0
+                && inst.memory_displ_size() != 0
                 && inst.op1_kind() == OpKind::Immediate32
                 && inst.immediate32() == 1
             {
@@ -124,7 +124,7 @@ pub unsafe fn apply(
                 && inst.mnemonic() == Mnemonic::Mov
                 && inst.op0_kind() == OpKind::Memory
                 && inst.memory_base() == Register::RIP
-                && inst.memory_displacement_size() != 0
+                && inst.memory_displ_size() != 0
                 && inst.op1_kind() == OpKind::Register
             {
                 found = true;
@@ -140,7 +140,7 @@ pub unsafe fn apply(
             else if inst.mnemonic() == Mnemonic::Lea
                 && inst.op1_kind() == OpKind::Memory
                 && inst.memory_base() == Register::RIP
-                && inst.memory_displacement_size() != 0
+                && inst.memory_displ_size() != 0
                 && inst.op0_kind() == OpKind::Register
                 && inst.op0_register() == Register::RDX
             {
@@ -153,7 +153,7 @@ pub unsafe fn apply(
             else if inst.mnemonic() == Mnemonic::Mov
                 && inst.op0_kind() == OpKind::Memory
                 && inst.memory_base() == Register::RIP
-                && inst.memory_displacement_size() != 0
+                && inst.memory_displ_size() != 0
                 && inst.op1_kind() == OpKind::Register
                 && (inst.op1_register() == Register::EAX || inst.op1_register() == Register::ECX)
             {
@@ -220,7 +220,7 @@ pub unsafe fn apply(
             && inst.op0_kind() == OpKind::Memory
             && inst.memory_segment() == Register::DS
             && inst.memory_base() == Register::None
-            && inst.memory_displacement_size() != 0
+            && inst.memory_displ_size() != 0
             && inst.op1_kind() == OpKind::Register
             && (inst.op1_register() == Register::EAX
                 || inst.op1_register() == Register::EDI
@@ -240,7 +240,7 @@ pub unsafe fn apply(
             && inst.op0_kind() == OpKind::Memory
             && inst.memory_segment() == Register::DS
             && inst.memory_base() == Register::None
-            && inst.memory_displacement_size() != 0
+            && inst.memory_displ_size() != 0
             && inst.op1_kind() == OpKind::Immediate32
             && inst.immediate32() == 1
         {

@@ -15,7 +15,7 @@ license = "MIT"
 
 [workspace.dependencies]
 # Disassembler - pure Rust x86/x64 decoder
-iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel"] }
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
 
 # PE parsing
 pelite = "0.10"
