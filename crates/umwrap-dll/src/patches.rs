@@ -57,7 +57,7 @@ pub unsafe fn apply_patches(hmod: HMODULE) {
 
     let adjusted = pe.adjusted_base;
 
-    for (i, func) in func_table.iter().enumerate() {
+    for func in func_table.iter() {
         let begin = func.begin_address as usize;
         let length = (func.end_address - func.begin_address) as usize;
         let code = unsafe { std::slice::from_raw_parts((adjusted + begin) as *const u8, length) };
