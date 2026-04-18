@@ -139,6 +139,45 @@ jobs:
             Write-Host "$name size: $([math]::Round($size/1024))KB OK"
           }
 
+      # ── Verify installer binary exists (release only) ──
+      - name: Verify installer binary
+        if: matrix.profile == 'release'
+        shell: pwsh
+        run: |
+          $base = "target/${{ matrix.target }}/release"
+          $exe = "$base/rdprrap-installer.exe"
+          if (!(Test-Path $exe)) {
+            Write-Error "rdprrap-installer.exe not found at $exe"
+            exit 1
+          }
+          # Sanity check: --help and --version should exit 0.
+          & $exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "rdprrap-installer --help failed (exit $LASTEXITCODE)"
+            exit 1
+          }
+          & $exe --version | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "rdprrap-installer --version failed (exit $LASTEXITCODE)"
+            exit 1
+          }
+          Write-Host "rdprrap-installer.exe: OK"
+
+      # ── Verify rdprrap-check / rdprrap-conf scaffolds exist (release only) ──
+      - name: Verify check + conf binaries
+        if: matrix.profile == 'release'
+        shell: pwsh
+        run: |
+          $base = "target/${{ matrix.target }}/release"
+          foreach ($name in @("rdprrap-check.exe", "rdprrap-conf.exe")) {
+            $exe = "$base/$name"
+            if (!(Test-Path $exe)) {
+              Write-Error "$name not found at $exe"
+              exit 1
+            }
+            Write-Host "${name}: OK"
+          }
+
       # ── Upload release artifacts ──
       - name: Upload artifacts
         if: matrix.profile == 'release'
@@ -148,17 +187,21 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/*.dll
             target/${{ matrix.target }}/release/offset-finder.exe
+            target/${{ matrix.target }}/release/rdprrap-installer.exe
+            target/${{ matrix.target }}/release/rdprrap-check.exe
+            target/${{ matrix.target }}/release/rdprrap-conf.exe
 
-  # ─── Dependency audit ───
+  # ─── Dependency audit (gate: runs on every push + PR, parallel with build) ───
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      - name: Audit dependencies
-        run: cargo audit
+      - name: Audit workspace dependencies (deny warnings)
+        run: cargo audit --deny warnings
 
   # ─── Bytecode verification test ───
   bytecode-verify:
