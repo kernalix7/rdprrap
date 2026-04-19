@@ -67,7 +67,7 @@ jobs:
       # windows-latest runner ships MSVC but the dev shell isn't sourced).
       - name: Install llvm-tools
         if: matrix.profile == 'release'
-        run: rustup component add llvm-tools-preview --target ${{ matrix.target }}
+        run: rustup component add llvm-tools-preview
 
       - name: Verify DLL exports
         if: matrix.profile == 'release'
@@ -84,8 +84,11 @@ jobs:
             $archPattern = "IMAGE_FILE_MACHINE_I386"
           }
 
+          # llvm-tools is a host component — always under the host triple,
+          # regardless of what we're cross-compiling to.
           $sysroot = (& rustc --print sysroot).Trim()
-          $readobj = Join-Path $sysroot "lib/rustlib/${{ matrix.target }}/bin/llvm-readobj.exe"
+          $hostTriple = (& rustc -vV | Select-String "^host: ").ToString().Split()[1]
+          $readobj = Join-Path $sysroot "lib/rustlib/$hostTriple/bin/llvm-readobj.exe"
           if (!(Test-Path $readobj)) {
             Write-Error "llvm-readobj.exe not found at $readobj"
             exit 1
