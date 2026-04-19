@@ -146,6 +146,27 @@ jobs:
             Write-Host "$name size: $([math]::Round($size/1024))KB OK"
           }
 
+      # ── Smoke test: run offset-finder against the runner's own
+      # termsrv.dll (windows-latest is Server 2022, 10.0.20348.x). Exercises
+      # the runtime pattern-matching pipeline end-to-end on a real, current
+      # Windows build — the closest thing to an integration test that a
+      # hosted runner can provide. x64 only: the runner is 64-bit, so
+      # System32 only holds the native image.
+      - name: Smoke test offset-finder vs system termsrv.dll
+        if: matrix.profile == 'release' && matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $exe = "target/${{ matrix.target }}/release/offset-finder.exe"
+          if (!(Test-Path $exe)) {
+            Write-Error "offset-finder.exe not found"
+            exit 1
+          }
+          & $exe --assert-all "$env:SystemRoot\System32\termsrv.dll"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "offset-finder --assert-all failed (exit $LASTEXITCODE)"
+            exit 1
+          }
+
       # ── Verify installer binary exists (release only) ──
       - name: Verify installer binary
         if: matrix.profile == 'release'
