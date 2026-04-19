@@ -61,49 +61,57 @@ jobs:
         run: cargo test --target ${{ matrix.target }}
 
       # ── DLL export verification (release only) ──
+      #
+      # Uses llvm-readobj from rustup's llvm-tools-preview component so the
+      # check doesn't depend on MSVC's dumpbin.exe being on PATH (the
+      # windows-latest runner ships MSVC but the dev shell isn't sourced).
+      - name: Install llvm-tools
+        if: matrix.profile == 'release'
+        run: rustup component add llvm-tools-preview --target ${{ matrix.target }}
+
       - name: Verify DLL exports
         if: matrix.profile == 'release'
         shell: pwsh
         run: |
           $base = "target/${{ matrix.target }}/release"
 
-          # Determine expected arch from target
+          # Determine expected arch from target + locate llvm-readobj
           if ("${{ matrix.target }}" -like "x86_64*") {
             $expectedArch = "x64"
+            $archPattern = "IMAGE_FILE_MACHINE_AMD64"
           } else {
             $expectedArch = "x86"
+            $archPattern = "IMAGE_FILE_MACHINE_I386"
+          }
+
+          $sysroot = (& rustc --print sysroot).Trim()
+          $readobj = Join-Path $sysroot "lib/rustlib/${{ matrix.target }}/bin/llvm-readobj.exe"
+          if (!(Test-Path $readobj)) {
+            Write-Error "llvm-readobj.exe not found at $readobj"
+            exit 1
+          }
+
+          function Assert-Export($dll, $name) {
+            $out = & $readobj --coff-exports $dll | Out-String
+            if ($out -notmatch [regex]::Escape($name)) {
+              Write-Error "$dll missing $name export"
+              exit 1
+            }
           }
 
           # --- TermWrap ---
           $dll = "$base/termwrap_dll.dll"
           if (!(Test-Path $dll)) { Write-Error "termwrap_dll.dll not found"; exit 1 }
-          $exports = & dumpbin /exports $dll | Out-String
-          if ($exports -notmatch "ServiceMain") {
-            Write-Error "termwrap_dll.dll missing ServiceMain export"
-            exit 1
-          }
-          if ($exports -notmatch "SvchostPushServiceGlobals") {
-            Write-Error "termwrap_dll.dll missing SvchostPushServiceGlobals export"
-            exit 1
-          }
+          Assert-Export $dll "ServiceMain"
+          Assert-Export $dll "SvchostPushServiceGlobals"
           Write-Host "termwrap_dll.dll exports: OK"
 
           # --- EndpWrap ---
           $dll = "$base/endpwrap_dll.dll"
           if (!(Test-Path $dll)) { Write-Error "endpwrap_dll.dll not found"; exit 1 }
-          $exports = & dumpbin /exports $dll | Out-String
-          if ($exports -notmatch "GetTSAudioEndpointEnumeratorForSession") {
-            Write-Error "endpwrap_dll.dll missing GetTSAudioEndpointEnumeratorForSession export"
-            exit 1
-          }
-          if ($exports -notmatch "DllGetClassObject") {
-            Write-Error "endpwrap_dll.dll missing DllGetClassObject export"
-            exit 1
-          }
-          if ($exports -notmatch "DllCanUnloadNow") {
-            Write-Error "endpwrap_dll.dll missing DllCanUnloadNow export"
-            exit 1
-          }
+          Assert-Export $dll "GetTSAudioEndpointEnumeratorForSession"
+          Assert-Export $dll "DllGetClassObject"
+          Assert-Export $dll "DllCanUnloadNow"
           Write-Host "endpwrap_dll.dll exports: OK"
 
           # --- UmWrap (no managed exports — DllMain only) ---
@@ -113,13 +121,9 @@ jobs:
 
           # --- Verify PE architecture ---
           foreach ($name in @("termwrap_dll.dll", "endpwrap_dll.dll", "umwrap_dll.dll")) {
-            $info = & dumpbin /headers "$base/$name" | Out-String
-            if ($expectedArch -eq "x64" -and $info -notmatch "machine \(x64\)") {
-              Write-Error "$name is not x64"
-              exit 1
-            }
-            if ($expectedArch -eq "x86" -and $info -notmatch "machine \(x86\)") {
-              Write-Error "$name is not x86"
+            $info = & $readobj --file-headers "$base/$name" | Out-String
+            if ($info -notmatch [regex]::Escape($archPattern)) {
+              Write-Error "$name is not $expectedArch (expected $archPattern)"
               exit 1
             }
           }
