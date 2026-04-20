@@ -3,6 +3,7 @@ name = "rdprrap-installer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Installer/uninstaller for rdprrap wrapper DLLs (registry + service + firewall setup)"
 
 [[bin]]

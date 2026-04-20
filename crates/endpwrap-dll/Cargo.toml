@@ -3,6 +3,7 @@ name = "endpwrap-dll"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "rdpendp.dll proxy DLL — audio recording redirection"
 
 [lib]

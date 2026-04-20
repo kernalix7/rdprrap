@@ -3,6 +3,7 @@ name = "offset-finder"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Standalone CLI tool for termsrv.dll offset detection"
 
 [dependencies]

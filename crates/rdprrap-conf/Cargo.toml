@@ -3,6 +3,7 @@ name = "rdprrap-conf"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Rust replacement for RDPConf.exe — GUI configuration tool for rdprrap"
 
 [[bin]]

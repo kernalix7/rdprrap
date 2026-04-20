@@ -28,17 +28,32 @@ jobs:
         run: cargo test
 
   # ─── Windows: build + test matrix (x64, x86) × (debug, release) ───
+  #
+  # The release x64 job additionally runs an offset-finder smoke test
+  # against the runner's own C:\Windows\System32\termsrv.dll — that
+  # exercises the pattern-matching pipeline on a real, current Windows
+  # build (hosted runner image ships Server 2022, 10.0.20348.x).
   build-windows:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - windows-latest
         target:
           - x86_64-pc-windows-msvc
           - i686-pc-windows-msvc
         profile:
           - debug
           - release
+        # Additional row: run the release x64 build on windows-2019 too so
+        # the offset-finder smoke test also hits a Server 2019 termsrv.dll
+        # (10.0.17763.x). Catches pattern-matching regressions between
+        # major Windows lines without doubling the whole matrix.
+        include:
+          - os: windows-2019
+            target: x86_64-pc-windows-msvc
+            profile: release
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -218,6 +233,20 @@ jobs:
             target/${{ matrix.target }}/release/rdprrap-installer.exe
             target/${{ matrix.target }}/release/rdprrap-check.exe
             target/${{ matrix.target }}/release/rdprrap-conf.exe
+
+  # ─── cargo-deny: license + banned-deps + source-registry policy gate ───
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Enforce deny.toml policy
+        run: cargo deny check
 
   # ─── Dependency audit (gate: runs on every push + PR, parallel with build) ───
   audit:

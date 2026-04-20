@@ -1,0 +1,88 @@
+# cargo-deny policy for rdprrap.
+#
+# Checks run in CI: advisories, licenses, bans, sources.
+#
+# Policy intent:
+#   * Every dependency must carry a permissive OSS license we can ship
+#     alongside the MIT-licensed rdprrap binaries.
+#   * No GPL / AGPL / SSPL lineage — they'd force derivative works on the
+#     DLL-proxy consumers.
+#   * No unmaintained / yanked crates; CVEs block the build.
+#   * Only crates.io as a source.
+#   * Duplicate major-version graphs are visible (warn) — they're the usual
+#     windows-sys / syn-1/syn-2 transitions we'd rather notice than ignore.
+
+[graph]
+# Only check the Windows build graphs — our supported shipping targets. The
+# Linux lint build uses the same upstream crates but with different native
+# deps; scanning Linux-only deps would just add noise.
+targets = [
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "i686-pc-windows-msvc" },
+]
+all-features = false
+
+[output]
+feature-depth = 1
+
+# ──────────────────────────────────────────────────────────────────────────
+# Advisories — CVE / unmaintained / yanked crates.
+# ──────────────────────────────────────────────────────────────────────────
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+# ──────────────────────────────────────────────────────────────────────────
+# Licenses — permissive OSS only.
+# ──────────────────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+]
+exceptions = []
+
+# stretch 0.3.2 (transitive via native-windows-gui) omits its license field
+# from Cargo.toml. Upstream repository (vislyhq/stretch) is MIT-licensed —
+# see https://github.com/vislyhq/stretch/blob/master/LICENSE. Clarify here
+# so cargo-deny can match the real license text.
+[[licenses.clarify]]
+name = "stretch"
+version = "0.3.2"
+expression = "MIT"
+license-files = []
+
+# ──────────────────────────────────────────────────────────────────────────
+# Bans — C-dependency gate (we explicitly stay pure-Rust) + duplicates.
+# ──────────────────────────────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace-internal path deps (e.g. `patcher = { path = "../patcher" }`)
+# count as wildcards by default; they're intentional and not a semver risk.
+allow-wildcard-paths = true
+highlight = "all"
+# Explicit deny-list. Empty for now — rdprrap has no C bindings, so we
+# don't need to ban any specific crate yet. Add entries here when a PR
+# tries to introduce one (e.g. `{ name = "zydis" }` if anyone swaps out
+# iced-x86 for a C-backed disassembler).
+deny = []
+skip = []
+skip-tree = []
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sources — only crates.io; no git or alt-registry deps.
+# ──────────────────────────────────────────────────────────────────────────
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -15,6 +15,11 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+# Internal workspace — the crates here are DLL proxies and glue binaries
+# that target a specific Windows deployment, not crates.io. Marking them
+# publish = false lets cargo-deny recognise workspace path deps as
+# intentional (via allow-wildcard-paths).
+publish = false
 
 [workspace.dependencies]
 # Disassembler - pure Rust x86/x64 decoder

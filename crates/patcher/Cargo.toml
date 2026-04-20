@@ -3,6 +3,7 @@ name = "patcher"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 description = "Shared library for PE parsing, disassembly, pattern matching, and memory patching"
 
 [dependencies]
