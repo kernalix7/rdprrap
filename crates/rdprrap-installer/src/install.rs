@@ -46,10 +46,10 @@ pub struct Options {
 /// Key + value under Winlogon used to cap the number of concurrent TS sessions.
 /// Matches upstream `RDPWInst.dpr`'s AllowMultipleTSSessions knob (C1): setting
 /// this DWORD to 1 tells Winlogon to permit parallel interactive sessions.
-/// Path comes from `crate::contract::reg::WINLOGON` so the install plan and
-/// the actual writer cannot drift.
+/// Path + value name come from `crate::contract` so the install plan and the
+/// actual writer cannot drift.
 use crate::contract::reg::WINLOGON as WINLOGON_KEY;
-const ALLOW_MULTI_VALUE: &str = "AllowMultipleTSSessions";
+use crate::contract::values::ALLOW_MULTIPLE_TS_SESSIONS as ALLOW_MULTI_VALUE;
 
 pub fn run(opts: Options) -> Result<()> {
     let install_dir = paths::install_dir()?;
@@ -504,7 +504,7 @@ fn read_fdeny_ts_connections() -> Result<Option<u32>> {
         Ok(k) => k,
         Err(_) => return Ok(None),
     };
-    key.get_dword("fDenyTSConnections")
+    key.get_dword(crate::contract::values::FDENY_TS_CONNECTIONS)
 }
 
 /// Read `AllowMultipleTSSessions` under `HKLM\...\Winlogon` so uninstall can
@@ -601,15 +601,20 @@ fn set_service_dll_str(value: &str) -> Result<()> {
 }
 
 fn apply_policy_keys(disable_nla: bool, create_addins: bool) -> Result<()> {
+    use crate::contract::values as v;
+
     // Terminal Server root: fDenyTSConnections=0
     {
         let key = RegKey::open_local_machine(keys::TERMINAL_SERVER, KEY_WRITE)?;
-        key.set_dword("fDenyTSConnections", 0)?;
+        key.set_dword(v::FDENY_TS_CONNECTIONS, v::FDENY_TS_CONNECTIONS_DATA)?;
     }
     // WinStations\RDP-Tcp: EnableConcurrentSessions=1
     {
         let key = RegKey::open_local_machine(keys::WINSTATIONS_RDP_TCP, KEY_WRITE)?;
-        key.set_dword("EnableConcurrentSessions", 1)?;
+        key.set_dword(
+            v::ENABLE_CONCURRENT_SESSIONS,
+            v::ENABLE_CONCURRENT_SESSIONS_DATA,
+        )?;
 
         // H3: historically we unconditionally wrote `UserAuthentication=0`
         // to disable NLA. That silently weakens authentication on every host
@@ -622,14 +627,17 @@ fn apply_policy_keys(disable_nla: bool, create_addins: bool) -> Result<()> {
                  weakens RDP authentication. Omit the flag to keep the \
                  current NLA setting."
             );
-            key.set_dword("UserAuthentication", 0)?;
+            key.set_dword(v::USER_AUTHENTICATION, v::USER_AUTHENTICATION_DISABLED)?;
         }
     }
     // Licensing Core: AllowMultipleTSSessions=1
     {
         // This key may not pre-exist on all SKUs; create_local_machine is safe.
         let key = RegKey::create_local_machine(keys::LICENSING_CORE, KEY_WRITE)?;
-        key.set_dword("AllowMultipleTSSessions", 1)?;
+        key.set_dword(
+            v::ALLOW_MULTIPLE_TS_SESSIONS,
+            v::ALLOW_MULTIPLE_TS_SESSIONS_DATA,
+        )?;
     }
     // TS AddIns (Clip Redirector / DND Redirector / Dynamic VC).
     //
@@ -657,20 +665,28 @@ fn apply_policy_keys(disable_nla: bool, create_addins: bool) -> Result<()> {
     // Clip Redirector
     {
         let key = RegKey::create_local_machine(keys::ADDINS_CLIP, KEY_WRITE)?;
-        key.set_string("Name", "RDPClip", /*expand=*/ false)?;
-        key.set_dword("Type", 3)?;
+        key.set_string(
+            v::ADDIN_NAME,
+            v::ADDIN_CLIP_NAME_DATA,
+            /*expand=*/ false,
+        )?;
+        key.set_dword(v::ADDIN_TYPE, v::ADDIN_TYPE_STANDARD)?;
     }
     // DND Redirector
     {
         let key = RegKey::create_local_machine(keys::ADDINS_DND, KEY_WRITE)?;
-        key.set_string("Name", "RDPDND", /*expand=*/ false)?;
-        key.set_dword("Type", 3)?;
+        key.set_string(
+            v::ADDIN_NAME,
+            v::ADDIN_DND_NAME_DATA,
+            /*expand=*/ false,
+        )?;
+        key.set_dword(v::ADDIN_TYPE, v::ADDIN_TYPE_STANDARD)?;
     }
     // Dynamic VC — only `Type = 0xFFFFFFFF` (unsigned representation of the
     // signed -1 written by `RDPWInst.dpr`).
     {
         let key = RegKey::create_local_machine(keys::ADDINS_DVC, KEY_WRITE)?;
-        key.set_dword("Type", 0xFFFF_FFFFu32)?;
+        key.set_dword(v::ADDIN_TYPE, v::ADDIN_TYPE_DYNAMIC_VC)?;
     }
     Ok(())
 }

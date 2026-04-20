@@ -8,7 +8,7 @@
 
 use std::io::{self, Write};
 
-use crate::contract::{self, firewall, reg};
+use crate::contract::{self, firewall, reg, values as v};
 
 /// Write the full install manifest to `out`. Deterministic across hosts.
 pub fn write_manifest<W: Write>(out: &mut W) -> io::Result<()> {
@@ -56,6 +56,81 @@ pub fn write_manifest<W: Write>(out: &mut W) -> io::Result<()> {
     ] {
         writeln!(out, "  {key}")?;
     }
+    writeln!(out)?;
+
+    writeln!(out, "Registry values written (name = data [type])")?;
+    writeln!(out, "  HKLM\\{key}", key = reg::TERMINAL_SERVER)?;
+    writeln!(
+        out,
+        "    {name} = {data} [DWORD]",
+        name = v::FDENY_TS_CONNECTIONS,
+        data = v::FDENY_TS_CONNECTIONS_DATA,
+    )?;
+    writeln!(out, "  HKLM\\{key}", key = reg::WINSTATIONS_RDP_TCP)?;
+    writeln!(
+        out,
+        "    {name} = {data} [DWORD]",
+        name = v::ENABLE_CONCURRENT_SESSIONS,
+        data = v::ENABLE_CONCURRENT_SESSIONS_DATA,
+    )?;
+    writeln!(
+        out,
+        "    {name} = {data} [DWORD]  (only with --disable-nla)",
+        name = v::USER_AUTHENTICATION,
+        data = v::USER_AUTHENTICATION_DISABLED,
+    )?;
+    writeln!(out, "  HKLM\\{key}", key = reg::LICENSING_CORE)?;
+    writeln!(
+        out,
+        "    {name} = {data} [DWORD]",
+        name = v::ALLOW_MULTIPLE_TS_SESSIONS,
+        data = v::ALLOW_MULTIPLE_TS_SESSIONS_DATA,
+    )?;
+    writeln!(
+        out,
+        "  HKLM\\{key}  (only when AddIns parent is newly created)",
+        key = reg::ADDINS_CLIP
+    )?;
+    writeln!(
+        out,
+        "    {name} = \"{data}\" [SZ]",
+        name = v::ADDIN_NAME,
+        data = v::ADDIN_CLIP_NAME_DATA,
+    )?;
+    writeln!(
+        out,
+        "    {name} = {data} [DWORD]",
+        name = v::ADDIN_TYPE,
+        data = v::ADDIN_TYPE_STANDARD,
+    )?;
+    writeln!(
+        out,
+        "  HKLM\\{key}  (only when AddIns parent is newly created)",
+        key = reg::ADDINS_DND
+    )?;
+    writeln!(
+        out,
+        "    {name} = \"{data}\" [SZ]",
+        name = v::ADDIN_NAME,
+        data = v::ADDIN_DND_NAME_DATA,
+    )?;
+    writeln!(
+        out,
+        "    {name} = {data} [DWORD]",
+        name = v::ADDIN_TYPE,
+        data = v::ADDIN_TYPE_STANDARD,
+    )?;
+    writeln!(
+        out,
+        "  HKLM\\{key}  (only when AddIns parent is newly created)",
+        key = reg::ADDINS_DVC
+    )?;
+    writeln!(
+        out,
+        "    {name} = 0x{data:08X} [DWORD]",
+        name = v::ADDIN_TYPE,
+        data = v::ADDIN_TYPE_DYNAMIC_VC,
+    )?;
     writeln!(out)?;
 
     writeln!(out, "Firewall rules (inbound, profile=any)")?;

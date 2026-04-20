@@ -1,6 +1,6 @@
 ---
 source: crates/rdprrap-installer/src/plan.rs
-assertion_line: 128
+assertion_line: 194
 expression: text
 ---
 rdprrap-installer plan
@@ -28,6 +28,23 @@ Registry keys touched (all under HKLM)
   SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Dynamic VC
   SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
   SOFTWARE\rdprrap\Installer
+
+Registry values written (name = data [type])
+  HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server
+    fDenyTSConnections = 0 [DWORD]
+  HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+    EnableConcurrentSessions = 1 [DWORD]
+    UserAuthentication = 0 [DWORD]  (only with --disable-nla)
+  HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\Licensing Core
+    AllowMultipleTSSessions = 1 [DWORD]
+  HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Clip Redirector  (only when AddIns parent is newly created)
+    Name = "RDPClip" [SZ]
+    Type = 3 [DWORD]
+  HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\DND Redirector  (only when AddIns parent is newly created)
+    Name = "RDPDND" [SZ]
+    Type = 3 [DWORD]
+  HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Dynamic VC  (only when AddIns parent is newly created)
+    Type = 0xFFFFFFFF [DWORD]
 
 Firewall rules (inbound, profile=any)
   rdprrap-RDP-TCP tcp/3389

@@ -140,14 +140,16 @@ fn revert_policy_keys(
     //     falls back to its documented default of 1 = deny).
     //   * If we have no record at all (legacy install from before H4), leave
     //     the value alone — the user can flip RDP on/off in System Properties.
+    use crate::contract::values as v;
+
     if prev_fdeny_present {
         if let Ok(key) = RegKey::open_local_machine(keys::TERMINAL_SERVER, KEY_WRITE) {
             match prev_fdeny {
-                Some(v) => {
-                    let _ = key.set_dword("fDenyTSConnections", v);
+                Some(vv) => {
+                    let _ = key.set_dword(v::FDENY_TS_CONNECTIONS, vv);
                 }
                 None => {
-                    let _ = key.delete_value("fDenyTSConnections");
+                    let _ = key.delete_value(v::FDENY_TS_CONNECTIONS);
                 }
             }
         }
@@ -155,12 +157,12 @@ fn revert_policy_keys(
 
     // Revert EnableConcurrentSessions back to 0 on RDP-Tcp.
     if let Ok(key) = RegKey::open_local_machine(keys::WINSTATIONS_RDP_TCP, KEY_WRITE) {
-        let _ = key.set_dword("EnableConcurrentSessions", 0);
+        let _ = key.set_dword(v::ENABLE_CONCURRENT_SESSIONS, 0);
     }
 
     // AllowMultipleTSSessions — we created the subkey, so remove the value.
     if let Ok(key) = RegKey::open_local_machine(keys::LICENSING_CORE, KEY_WRITE) {
-        let _ = key.delete_value("AllowMultipleTSSessions");
+        let _ = key.delete_value(v::ALLOW_MULTIPLE_TS_SESSIONS);
     }
 
     // C1: restore the Winlogon AllowMultipleTSSessions knob to whatever we
