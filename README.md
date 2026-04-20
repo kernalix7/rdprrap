@@ -58,6 +58,10 @@ rdprrap-installer.exe install --source <dir-containing-built-DLLs>
 # Check current state (ServiceDll, registry, firewall, termsrv.dll version)
 rdprrap-installer.exe status
 
+# Print the install contract (paths, DLL names, registry keys+values,
+# firewall rules) — pure documentation, no I/O, no elevation required
+rdprrap-installer.exe plan
+
 # Uninstall — restores original ServiceDll, AllowMultipleTSSessions,
 # fDenyTSConnections, AddIns, and removes firewall rules
 rdprrap-installer.exe uninstall
