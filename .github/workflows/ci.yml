@@ -46,12 +46,15 @@ jobs:
         profile:
           - debug
           - release
-        # Additional row: run the release x64 build on windows-2019 too so
-        # the offset-finder smoke test also hits a Server 2019 termsrv.dll
-        # (10.0.17763.x). Catches pattern-matching regressions between
-        # major Windows lines without doubling the whole matrix.
+        # Additional row: pin one extra release x64 build to windows-2025 so
+        # the offset-finder smoke test also hits a Server 2025 termsrv.dll
+        # alongside whatever windows-latest currently maps to (Server 2022
+        # as of 2026-Q2). Two distinct Windows lines without doubling the
+        # whole matrix. Server 2019 coverage used to live here, but that
+        # image was retired by GitHub Actions on 2025-06-30 — using it now
+        # hangs jobs in the queue indefinitely.
         include:
-          - os: windows-2019
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
             profile: release
     steps:
