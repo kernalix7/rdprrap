@@ -31,9 +31,13 @@ use windows::Win32::System::Registry::{
 /// so the install-plan snapshot and the actual registry I/O share a single
 /// source of truth.
 pub mod keys {
+    // WINLOGON is intentionally absent here — it's consumed as `WINLOGON_KEY`
+    // at the top of this module (via a renaming `use`) to preserve the
+    // existing local call sites, and is also referenced directly by the
+    // `plan` subcommand via `crate::contract::reg::WINLOGON`.
     pub use crate::contract::reg::{
         ADDINS_CLIP, ADDINS_DND, ADDINS_DVC, ADDINS_PARENT, INSTALLER_STATE, LICENSING_CORE,
-        TERMINAL_SERVER, TERMSERVICE_PARAMETERS, WINLOGON, WINSTATIONS_RDP_TCP,
+        TERMINAL_SERVER, TERMSERVICE_PARAMETERS, WINSTATIONS_RDP_TCP,
     };
 }
 
