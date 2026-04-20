@@ -26,33 +26,19 @@ use windows::Win32::System::Registry::{
 };
 
 /// Canonical registry locations we touch during install/uninstall.
+///
+/// Defined once in `crate::contract::reg` (non-gated) and re-exported here
+/// so the install-plan snapshot and the actual registry I/O share a single
+/// source of truth.
 pub mod keys {
-    pub const TERMSERVICE_PARAMETERS: &str =
-        "SYSTEM\\CurrentControlSet\\Services\\TermService\\Parameters";
-    pub const TERMINAL_SERVER: &str = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server";
-    pub const WINSTATIONS_RDP_TCP: &str =
-        "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp";
-    pub const LICENSING_CORE: &str =
-        "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\Licensing Core";
-    /// Parent key for the three virtual-channel AddIn subkeys. If this key
-    /// already exists before install we leave the entire AddIns configuration
-    /// alone — matching upstream `RDPWInst.dpr`'s `if not Reg.KeyExists('AddIns')`
-    /// guard.
-    pub const ADDINS_PARENT: &str = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\AddIns";
-    pub const ADDINS_CLIP: &str =
-        "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\AddIns\\Clip Redirector";
-    pub const ADDINS_DND: &str =
-        "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\AddIns\\DND Redirector";
-    pub const ADDINS_DVC: &str =
-        "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\AddIns\\Dynamic VC";
-
-    /// Private rdprrap-installer subkey used to persist uninstall metadata
-    /// (original `ServiceDll` value, install path, version).
-    pub const INSTALLER_STATE: &str = "SOFTWARE\\rdprrap\\Installer";
+    pub use crate::contract::reg::{
+        ADDINS_CLIP, ADDINS_DND, ADDINS_DVC, ADDINS_PARENT, INSTALLER_STATE, LICENSING_CORE,
+        TERMINAL_SERVER, TERMSERVICE_PARAMETERS, WINLOGON, WINSTATIONS_RDP_TCP,
+    };
 }
 
 /// Value name of the TermService `ServiceDll` REG_EXPAND_SZ entry.
-pub const VALUE_SERVICE_DLL: &str = "ServiceDll";
+pub use crate::contract::VALUE_SERVICE_DLL;
 
 /// Restrictive DACL applied to the installer-state key:
 ///   - NT AUTHORITY\SYSTEM : Full
@@ -559,9 +545,9 @@ pub fn clear_uninstall_state() -> Result<()> {
 
 /// Canonical path of the Winlogon key that owns `AllowMultipleTSSessions`.
 ///
-/// Kept colocated with the restore helper below so every writer of this value
+/// Sourced from `crate::contract::reg::WINLOGON` so every writer of this value
 /// agrees on the same subkey.
-const WINLOGON_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+use crate::contract::reg::WINLOGON as WINLOGON_KEY;
 
 /// Value name of the Winlogon multi-session knob restored by
 /// [`restore_allow_multi_ts_sessions`].

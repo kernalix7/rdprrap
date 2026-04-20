@@ -14,6 +14,12 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 
+[dev-dependencies]
+# Snapshot testing for the `plan` subcommand — pins the install contract
+# (DLL names, registry keys, firewall rules) so any unintended drift
+# fails CI before it reaches real Windows hosts.
+insta = "1"
+
 [target.'cfg(windows)'.dependencies]
 # Extra security/authz + environment features beyond the workspace default.
 # (These are additive features on the same windows crate version.)

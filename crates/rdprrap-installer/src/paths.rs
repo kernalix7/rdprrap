@@ -12,23 +12,11 @@ use windows::Win32::Foundation::HLOCAL;
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
 
-/// Subdirectory name under `%ProgramFiles%` for the installed wrapper DLLs.
-pub const INSTALL_SUBDIR: &str = "RDP Wrapper";
-
-/// File names of the three wrapper DLLs produced by the cdylib crates.
-///
-/// The cdylib crate targets are `termwrap-dll`, `umwrap-dll`, `endpwrap-dll`;
-/// their produced DLL files are `termwrap_dll.dll` etc. (Rust converts `-` to `_`).
-/// When copying into the install directory we rename to the canonical short
-/// names expected by the ServiceDll registration and by downstream users.
-pub const WRAPPER_DLLS: &[(&str, &str)] = &[
-    ("termwrap_dll.dll", "termwrap.dll"),
-    ("umwrap_dll.dll", "umwrap.dll"),
-    ("endpwrap_dll.dll", "endpwrap.dll"),
-];
-
-/// The wrapper DLL that must be registered as the TermService `ServiceDll`.
-pub const SERVICE_DLL_NAME: &str = "termwrap.dll";
+// Install-contract string constants are defined once in `crate::contract`
+// (non-gated so they can drive the `plan` subcommand on Linux too). We
+// re-export the relevant names here to preserve the existing `paths::...`
+// call sites without duplicating the source of truth.
+pub use crate::contract::{INSTALL_SUBDIR, SERVICE_DLL_NAME, WRAPPER_DLLS};
 
 /// Return `%ProgramFiles%\RDP Wrapper\`.
 pub fn install_dir() -> Result<PathBuf> {

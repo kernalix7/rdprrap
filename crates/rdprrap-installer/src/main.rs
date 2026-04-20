@@ -21,6 +21,7 @@ use clap::Parser;
 #[cfg(windows)]
 mod acl;
 mod cli;
+mod contract;
 #[cfg(windows)]
 mod elevation;
 #[cfg(windows)]
@@ -29,6 +30,7 @@ mod firewall;
 mod install;
 #[cfg(windows)]
 mod paths;
+mod plan;
 #[cfg(windows)]
 mod registry;
 #[cfg(windows)]
@@ -53,6 +55,14 @@ fn main() -> Result<()> {
 
 #[cfg(windows)]
 fn run_windows(args: cli::Args) -> Result<()> {
+    let command = args.command();
+
+    // `plan` is read-only and does no I/O — skip the elevation gate so it
+    // can be run from any shell for documentation/diagnostics.
+    if matches!(command, cli::Command::Plan) {
+        return plan::print();
+    }
+
     // Elevation is required for every action that touches the registry,
     // SCM or Windows Firewall — bail fast with a clear message otherwise.
     if !elevation::is_elevated()? {
@@ -62,7 +72,7 @@ fn run_windows(args: cli::Args) -> Result<()> {
         );
     }
 
-    match args.command() {
+    match command {
         cli::Command::Install {
             source_dir,
             skip_firewall,
@@ -84,12 +94,15 @@ fn run_windows(args: cli::Args) -> Result<()> {
             skip_restart,
         }),
         cli::Command::Status => install::status(),
+        cli::Command::Plan => plan::print(),
     }
 }
 
 #[cfg(not(windows))]
 fn run_non_windows(args: cli::Args) -> Result<()> {
-    // Allow the `--help` and `status` codepaths to succeed on Linux for CI.
+    // Allow the `--help`, `status` and `plan` codepaths to succeed on Linux
+    // for CI. `plan` is especially useful here — it emits the install
+    // contract as a stable manifest that the snapshot test pins.
     match args.command() {
         cli::Command::Status => {
             eprintln!(
@@ -98,6 +111,7 @@ fn run_non_windows(args: cli::Args) -> Result<()> {
             );
             Ok(())
         }
+        cli::Command::Plan => plan::print(),
         _ => bail!(
             "rdprrap-installer must be run on Windows. Build with --target \
              x86_64-pc-windows-msvc or i686-pc-windows-msvc and run on the target host."

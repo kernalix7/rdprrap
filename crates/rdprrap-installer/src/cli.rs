@@ -95,6 +95,10 @@ pub enum Command {
     },
     /// Print the current install state (paths, ServiceDll value, firewall).
     Status,
+    /// Print a platform-independent description of the install contract
+    /// (paths, DLLs, registry keys, firewall rules). Does no I/O and
+    /// requires no elevation — useful for diagnostics and CI snapshots.
+    Plan,
 }
 
 impl Args {

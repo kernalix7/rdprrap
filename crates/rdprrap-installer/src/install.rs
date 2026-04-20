@@ -46,7 +46,9 @@ pub struct Options {
 /// Key + value under Winlogon used to cap the number of concurrent TS sessions.
 /// Matches upstream `RDPWInst.dpr`'s AllowMultipleTSSessions knob (C1): setting
 /// this DWORD to 1 tells Winlogon to permit parallel interactive sessions.
-const WINLOGON_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+/// Path comes from `crate::contract::reg::WINLOGON` so the install plan and
+/// the actual writer cannot drift.
+use crate::contract::reg::WINLOGON as WINLOGON_KEY;
 const ALLOW_MULTI_VALUE: &str = "AllowMultipleTSSessions";
 
 pub fn run(opts: Options) -> Result<()> {

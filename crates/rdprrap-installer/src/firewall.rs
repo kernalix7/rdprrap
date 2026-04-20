@@ -30,14 +30,11 @@ use std::process::Command;
 
 use anyhow::{anyhow, Result};
 
-/// Public rule name for the TCP/3389 inbound rule.
-///
-/// Exposed so other crates (e.g. `rdprrap-check`) can reference our firewall
-/// rules by their exact name without duplicating the string literal.
-pub const RULE_TCP: &str = "rdprrap-RDP-TCP";
-
-/// Public rule name for the UDP/3389 inbound rule.
-pub const RULE_UDP: &str = "rdprrap-RDP-UDP";
+// Rule names and RDP port come from the non-gated `crate::contract::firewall`
+// module so the install-plan snapshot and the actual `netsh` calls cannot
+// diverge. Exposed through this module so existing call sites
+// (`firewall::RULE_TCP`, etc.) continue to resolve unchanged.
+pub use crate::contract::firewall::{RDP_PORT, RULE_TCP, RULE_UDP};
 
 /// All rdprrap-owned firewall rule names, in the order we add them.
 pub const RULES: &[&str] = &[RULE_TCP, RULE_UDP];
@@ -48,9 +45,6 @@ pub const RULES: &[&str] = &[RULE_TCP, RULE_UDP];
 /// `netsh advfirewall firewall` accepts `protocol=tcp` and `protocol=udp`
 /// case-insensitively; we use lowercase to match the `rdpwrap` Delphi source.
 const RULES_WITH_PROTO: &[(&str, &str)] = &[(RULE_TCP, "tcp"), (RULE_UDP, "udp")];
-
-/// RDP port — identical to stock Windows terminal services.
-pub const RDP_PORT: u16 = 3389;
 
 /// CREATE_NO_WINDOW — suppress console window flash when running netsh.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;

@@ -1,0 +1,40 @@
+---
+source: crates/rdprrap-installer/src/plan.rs
+assertion_line: 128
+expression: text
+---
+rdprrap-installer plan
+======================
+
+Install directory
+  %ProgramFiles%\RDP Wrapper\
+
+Wrapper DLLs (built_name -> installed_name)
+  termwrap_dll.dll -> termwrap.dll
+  umwrap_dll.dll -> umwrap.dll
+  endpwrap_dll.dll -> endpwrap.dll
+
+ServiceDll registration
+  HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters\ServiceDll = %ProgramFiles%\RDP Wrapper\termwrap.dll (REG_EXPAND_SZ)
+
+Registry keys touched (all under HKLM)
+  SYSTEM\CurrentControlSet\Services\TermService\Parameters
+  SYSTEM\CurrentControlSet\Control\Terminal Server
+  SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+  SYSTEM\CurrentControlSet\Control\Terminal Server\Licensing Core
+  SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns
+  SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Clip Redirector
+  SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\DND Redirector
+  SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Dynamic VC
+  SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+  SOFTWARE\rdprrap\Installer
+
+Firewall rules (inbound, profile=any)
+  rdprrap-RDP-TCP tcp/3389
+  rdprrap-RDP-UDP udp/3389
+
+Uninstall behavior
+  Restore original ServiceDll from installer-state key
+  Remove wrapper DLLs + install directory
+  Remove firewall rules
+  Restart TermService
