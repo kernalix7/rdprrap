@@ -3,6 +3,11 @@ mod patches;
 #[cfg(windows)]
 mod thread;
 
+// The x86 function-body walker is pure-Rust / host-safe and is exercised by
+// unit tests on any host. `patches.rs` pulls it in only on Windows x86.
+#[cfg(any(all(windows, target_arch = "x86"), test))]
+mod x86_walk;
+
 #[cfg(windows)]
 use core::ffi::c_void;
 #[cfg(windows)]
