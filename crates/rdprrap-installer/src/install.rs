@@ -680,8 +680,3 @@ fn restart_termservice() -> Result<()> {
     println!("rdprrap-installer: TermService running");
     Ok(())
 }
-
-// Keep KEY_READ referenced so `use` above doesn't produce unused-import warnings
-// on paths that don't read the registry (currently none — this is defensive).
-#[allow(dead_code)]
-const _KEEP_KEY_READ: windows::Win32::System::Registry::REG_SAM_FLAGS = KEY_READ;

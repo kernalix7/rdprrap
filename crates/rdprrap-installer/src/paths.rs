@@ -4,11 +4,10 @@
 //! than trusting the environment variable, which can be redirected under
 //! WOW64 / 32-bit processes and shimming layers.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use windows::core::PWSTR;
-use windows::Win32::Foundation::HLOCAL;
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
 
@@ -21,12 +20,6 @@ pub use crate::contract::{INSTALL_SUBDIR, SERVICE_DLL_NAME, WRAPPER_DLLS};
 /// Return `%ProgramFiles%\RDP Wrapper\`.
 pub fn install_dir() -> Result<PathBuf> {
     Ok(program_files()?.join(INSTALL_SUBDIR))
-}
-
-/// Return the absolute path where the TermService ServiceDll should point.
-#[allow(dead_code)]
-pub fn service_dll_path() -> Result<PathBuf> {
-    Ok(install_dir()?.join(SERVICE_DLL_NAME))
 }
 
 /// RAII guard for memory allocated by a COM API that requires `CoTaskMemFree`.
@@ -122,15 +115,4 @@ unsafe fn read_wide_to_pathbuf(ptr: PWSTR) -> PathBuf {
     // `len < MAX_WIDE_LEN` so no overflow.
     let slice = unsafe { std::slice::from_raw_parts(ptr.0, len) };
     PathBuf::from(std::ffi::OsString::from_wide(slice))
-}
-
-/// Helper — suppress unused-import warning when only HLOCAL is referenced.
-#[allow(dead_code)]
-const _HLOCAL_IMPORT_USED: Option<HLOCAL> = None;
-
-/// Check whether a path is under a writeable, existing directory.
-/// Used for friendlier diagnostics before doing actual I/O.
-#[allow(dead_code)]
-pub fn parent_is_dir(path: &Path) -> bool {
-    path.parent().map(Path::is_dir).unwrap_or(false)
 }
