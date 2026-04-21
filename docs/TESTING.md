@@ -1,5 +1,7 @@
 # Windows Runtime Verification Checklist
 
+**English** | [한국어](TESTING.ko.md)
+
 Linux CI builds and Windows CI builds (x64/x86, debug/release) cover
 compile + clippy + unit tests. What CI cannot cover:
 
@@ -12,6 +14,11 @@ compile + clippy + unit tests. What CI cannot cover:
 This document captures the manual checks that close those gaps. Run
 them on a disposable VM snapshot. Restore the snapshot between runs so
 ACLs, registry, and service state all reset cleanly.
+
+For a Linux-friendly way to cover the x64 rows without a separate VM,
+see [TESTING_WINPODX.md](TESTING_WINPODX.md) — it walks through
+reusing a [winpodx](https://github.com/kernalix7/winpodx) container
+(dockur/windows + FreeRDP) as the target Windows host.
 
 ## Prerequisites
 
