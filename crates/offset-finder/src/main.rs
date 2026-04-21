@@ -2,6 +2,8 @@ use anyhow::{bail, Context, Result};
 use std::env;
 use std::path::PathBuf;
 
+mod xref_x86;
+
 #[derive(Default)]
 struct Args {
     dll_path: Option<String>,
@@ -256,6 +258,19 @@ fn find_offsets_pe32(pe: &pelite::pe32::PeFile<'_>, assert_all: bool) -> Result<
         .context("Failed to read .rdata")?;
     let rdata_va = rdata.VirtualAddress;
 
+    let text = pe
+        .section_headers()
+        .iter()
+        .find(|s| s.name().ok() == Some(".text"))
+        .context(".text not found")?;
+    let text_data = pe.get_section_bytes(text).context("Failed to read .text")?;
+    let text_va = text.VirtualAddress;
+
+    // Strings we will resolve to function RVAs. This matches termwrap-dll's
+    // `resolve_functions_x86` target set. `AllowRemoteConnections` (wide) is
+    // intentionally included — its owning function (CSLQuery::Initialize) is
+    // the anchor the sl_policy patch needs, and x86 has no exception table,
+    // so the xref walk is the only way to locate it.
     let patterns: &[(&str, &[u8])] = &[
         ("CDefPolicy_Query", b"CDefPolicy::Query"),
         (
@@ -270,6 +285,21 @@ fn find_offsets_pe32(pe: &pelite::pe32::PeFile<'_>, assert_all: bool) -> Result<
             "IsTerminalTypeLocalOnly",
             b"CSLQuery::IsTerminalTypeLocalOnly",
         ),
+        (
+            "IsAllowNonRDPStack",
+            b"CRemoteConnectionManager::IsAllowNonRDPStack\0",
+        ),
+        ("IsAppServerInstalled", b"CSLQuery::IsAppServerInstalled\0"),
+        (
+            "GetConnectionProperty",
+            b"CConnectionEx::GetConnectionProperty\0",
+        ),
+        ("IsSingleSessionPerUser", b"IsSingleSessionPerUser\0"),
+        (
+            "AllowRemoteConnections",
+            // UTF-16LE "TerminalServices-RemoteConnectionManager-AllowRemoteConnections\0"
+            b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0M\0a\0n\0a\0g\0e\0r\0-\0A\0l\0l\0o\0w\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0s\0\0\0",
+        ),
     ];
 
     println!("[Offset Report]");
@@ -277,20 +307,68 @@ fn find_offsets_pe32(pe: &pelite::pe32::PeFile<'_>, assert_all: bool) -> Result<
     println!("Arch=x86");
     println!();
 
-    let mut missing: Vec<&str> = Vec::new();
+    // Phase 1: locate strings in .rdata.
+    let mut str_rvas: Vec<(&str, Option<u32>)> = Vec::with_capacity(patterns.len());
     for (name, pattern) in patterns {
-        match find_in_section(rdata_data, rdata_va, pattern) {
-            Some(rva) => println!("{name}_str=0x{rva:X}"),
+        let rva = find_in_section(rdata_data, rdata_va, pattern).map(|r| r as u32);
+        match rva {
+            Some(r) => println!("{name}_str=0x{r:X}"),
+            None => println!("{name}_str=NOT_FOUND"),
+        }
+        str_rvas.push((name, rva));
+    }
+
+    // Phase 2: build absolute-VA targets and walk .text prologues to find the
+    // owning function for each string.
+    let targets: Vec<(&str, u32)> = str_rvas
+        .iter()
+        .filter_map(|(n, rva)| rva.map(|r| (*n, image_base.wrapping_add(r))))
+        .collect();
+
+    let func_rvas = xref_x86::find_xref_functions(text_data, text_va, &targets);
+
+    println!();
+    for (name, _) in patterns {
+        match func_rvas.get(*name) {
+            Some(rva) => println!("{name}_func=0x{rva:X}"),
             None => {
-                println!("{name}_str=NOT_FOUND");
-                missing.push(name);
+                // Only report missing functions for strings that WERE found —
+                // a missing string is already reported above.
+                if str_rvas.iter().any(|(n, rva)| n == name && rva.is_some()) {
+                    println!("{name}_func=NOT_FOUND");
+                }
             }
         }
     }
 
-    if assert_all && !missing.is_empty() {
-        eprintln!("[Assert] MISSING strings: {missing:?}");
-        bail!("--assert-all: required patterns not all resolved");
+    if assert_all {
+        let missing_strings: Vec<&str> = str_rvas
+            .iter()
+            .filter_map(|(n, rva)| rva.is_none().then_some(*n))
+            .collect();
+        let missing_funcs: Vec<&str> = str_rvas
+            .iter()
+            .filter_map(|(n, rva)| (rva.is_some() && !func_rvas.contains_key(n)).then_some(*n))
+            .collect();
+
+        println!();
+        println!(
+            "[Assert] strings: {}/{} found, functions: {}/{} resolved",
+            patterns.len() - missing_strings.len(),
+            patterns.len(),
+            func_rvas.len(),
+            patterns.len()
+        );
+
+        if !missing_strings.is_empty() || !missing_funcs.is_empty() {
+            if !missing_strings.is_empty() {
+                eprintln!("[Assert] MISSING strings: {missing_strings:?}");
+            }
+            if !missing_funcs.is_empty() {
+                eprintln!("[Assert] MISSING function xrefs: {missing_funcs:?}");
+            }
+            bail!("--assert-all: required patterns not all resolved");
+        }
     }
 
     Ok(())
