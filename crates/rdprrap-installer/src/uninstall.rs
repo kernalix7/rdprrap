@@ -28,67 +28,45 @@ pub fn run(opts: Options) -> Result<()> {
 
     // Step 1: load + validate + restore ServiceDll.
     let saved = registry::load_uninstall_state()?;
-    let (
-        restore_value,
-        install_dir,
-        prev_fdeny,
-        prev_fdeny_present,
-        prev_allow_multi,
-        prev_allow_multi_present,
-        addins_created_by_us,
-    ) = match &saved {
-        Some(state) => {
-            // H1: validate the saved value *before* writing it. If a
-            // low-privileged administrator has tampered with it we refuse
-            // to restore (leaving the wrapper ServiceDll in place is far
-            // safer than loading an attacker-chosen DLL as SYSTEM).
-            let install_dir = PathBuf::from(&state.install_dir);
-            if let Err(e) =
-                registry::validate_service_dll_path(&state.original_service_dll, Some(&install_dir))
-            {
-                bail!(
-                    "refusing to restore saved ServiceDll '{}': {}. \
-                     Aborting uninstall to avoid loading an attacker-controlled DLL. \
-                     Remove HKLM\\SOFTWARE\\rdprrap\\Installer manually and re-run.",
-                    state.original_service_dll,
-                    e
-                );
+    let (restore_value, install_dir, prev_fdeny, prev_fdeny_present, addins_created_by_us) =
+        match &saved {
+            Some(state) => {
+                // H1: validate the saved value *before* writing it. If a
+                // low-privileged administrator has tampered with it we refuse
+                // to restore (leaving the wrapper ServiceDll in place is far
+                // safer than loading an attacker-chosen DLL as SYSTEM).
+                let install_dir = PathBuf::from(&state.install_dir);
+                if let Err(e) = registry::validate_service_dll_path(
+                    &state.original_service_dll,
+                    Some(&install_dir),
+                ) {
+                    bail!(
+                        "refusing to restore saved ServiceDll '{}': {}. \
+                         Aborting uninstall to avoid loading an attacker-controlled DLL. \
+                         Remove HKLM\\SOFTWARE\\rdprrap\\Installer manually and re-run.",
+                        state.original_service_dll,
+                        e
+                    );
+                }
+                (
+                    state.original_service_dll.clone(),
+                    Some(install_dir),
+                    state.prev_fdeny,
+                    state.prev_fdeny_present,
+                    state.addins_created_by_us,
+                )
             }
-            (
-                state.original_service_dll.clone(),
-                Some(install_dir),
-                state.prev_fdeny,
-                state.prev_fdeny_present,
-                state.prev_allow_multi,
-                state.prev_allow_multi_present,
-                state.addins_created_by_us,
-            )
-        }
-        None => {
-            println!("rdprrap-installer: no saved state — using default ServiceDll");
-            (
-                DEFAULT_SERVICE_DLL.to_string(),
-                None,
-                None,
-                false,
-                None,
-                false,
-                false,
-            )
-        }
-    };
+            None => {
+                println!("rdprrap-installer: no saved state — using default ServiceDll");
+                (DEFAULT_SERVICE_DLL.to_string(), None, None, false, false)
+            }
+        };
 
     restore_service_dll(&restore_value)?;
     println!("rdprrap-installer: ServiceDll restored to {restore_value}");
 
     // Step 2: revert policy keys (best-effort — we only revert values we set).
-    revert_policy_keys(
-        prev_fdeny,
-        prev_fdeny_present,
-        prev_allow_multi,
-        prev_allow_multi_present,
-        addins_created_by_us,
-    )?;
+    revert_policy_keys(prev_fdeny, prev_fdeny_present, addins_created_by_us)?;
 
     // Step 3: firewall cleanup.
     if !opts.skip_firewall {
@@ -129,8 +107,6 @@ fn restore_service_dll(value: &str) -> Result<()> {
 fn revert_policy_keys(
     prev_fdeny: Option<u32>,
     prev_fdeny_present: bool,
-    prev_allow_multi: Option<u32>,
-    prev_allow_multi_present: bool,
     addins_created_by_us: bool,
 ) -> Result<()> {
     // H4: restore fDenyTSConnections to whatever we observed pre-install.
@@ -163,25 +139,6 @@ fn revert_policy_keys(
     // AllowMultipleTSSessions — we created the subkey, so remove the value.
     if let Ok(key) = RegKey::open_local_machine(keys::LICENSING_CORE, KEY_WRITE) {
         let _ = key.delete_value(v::ALLOW_MULTIPLE_TS_SESSIONS);
-    }
-
-    // C1: restore the Winlogon AllowMultipleTSSessions knob to whatever we
-    // snapshotted before install.
-    //
-    //   * `present=true, Some(v)` — write `v` back.
-    //   * `present=true, None`    — the value was explicitly absent
-    //                               pre-install; delete anything that may
-    //                               have been written to it since.
-    //   * `present=false`         — legacy install from before the C1
-    //                               snapshot was recorded; leave the value
-    //                               untouched.
-    if prev_allow_multi_present {
-        if let Err(e) = registry::restore_allow_multi_ts_sessions(prev_allow_multi) {
-            eprintln!(
-                "rdprrap-installer: restoring Winlogon AllowMultipleTSSessions \
-                 returned {e} (continuing)"
-            );
-        }
     }
 
     // TS AddIns (H5): only tear down the subtree if WE created the AddIns

@@ -1,6 +1,6 @@
 ---
 source: crates/rdprrap-installer/src/plan.rs
-assertion_line: 194
+assertion_line: 205
 expression: text
 ---
 rdprrap-installer plan
@@ -26,7 +26,6 @@ Registry keys touched (all under HKLM)
   SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Clip Redirector
   SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\DND Redirector
   SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\Dynamic VC
-  SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
   SOFTWARE\rdprrap\Installer
 
 Registry values written (name = data [type])

@@ -51,7 +51,6 @@ pub fn write_manifest<W: Write>(out: &mut W) -> io::Result<()> {
         reg::ADDINS_CLIP,
         reg::ADDINS_DND,
         reg::ADDINS_DVC,
-        reg::WINLOGON,
         reg::INSTALLER_STATE,
     ] {
         writeln!(out, "  {key}")?;

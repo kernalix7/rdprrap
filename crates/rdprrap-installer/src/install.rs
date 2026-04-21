@@ -43,14 +43,6 @@ pub struct Options {
     pub force: bool,
 }
 
-/// Key + value under Winlogon used to cap the number of concurrent TS sessions.
-/// Matches upstream `RDPWInst.dpr`'s AllowMultipleTSSessions knob (C1): setting
-/// this DWORD to 1 tells Winlogon to permit parallel interactive sessions.
-/// Path + value name come from `crate::contract` so the install plan and the
-/// actual writer cannot drift.
-use crate::contract::reg::WINLOGON as WINLOGON_KEY;
-use crate::contract::values::ALLOW_MULTIPLE_TS_SESSIONS as ALLOW_MULTI_VALUE;
-
 pub fn run(opts: Options) -> Result<()> {
     let install_dir = paths::install_dir()?;
     let source_dir = resolve_source_dir(opts.source_dir)?;
@@ -127,21 +119,13 @@ pub fn run(opts: Options) -> Result<()> {
     })?;
 
     let prev_fdeny = read_fdeny_ts_connections()?;
-    // C1: snapshot AllowMultipleTSSessions so uninstall can restore verbatim.
-    let prev_allow_multi = read_allow_multi_ts_sessions()?;
     // H5: mirror upstream `RDPWInst.dpr`'s `if not Reg.KeyExists('AddIns')`
     // guard — if the Terminal Server AddIns parent key already exists, its
     // contents are not ours to modify. We record this decision so uninstall
     // knows whether it is also allowed to remove the subkeys.
     let addins_parent_existed = registry::key_exists_local_machine(keys::ADDINS_PARENT)?;
     let addins_created_by_us = !addins_parent_existed;
-    registry::save_uninstall_state(
-        &original,
-        &install_dir,
-        prev_fdeny,
-        prev_allow_multi,
-        addins_created_by_us,
-    )?;
+    registry::save_uninstall_state(&original, &install_dir, prev_fdeny, addins_created_by_us)?;
 
     // --- Begin transactional section: if any of steps 4/5/6 fails we must
     //     restore the ServiceDll to `original` so that TermService boots with
@@ -505,16 +489,6 @@ fn read_fdeny_ts_connections() -> Result<Option<u32>> {
         Err(_) => return Ok(None),
     };
     key.get_dword(crate::contract::values::FDENY_TS_CONNECTIONS)
-}
-
-/// Read `AllowMultipleTSSessions` under `HKLM\...\Winlogon` so uninstall can
-/// restore it verbatim (C1). Absent → `None`.
-fn read_allow_multi_ts_sessions() -> Result<Option<u32>> {
-    let key = match RegKey::open_local_machine(WINLOGON_KEY, KEY_READ) {
-        Ok(k) => k,
-        Err(_) => return Ok(None),
-    };
-    key.get_dword(ALLOW_MULTI_VALUE)
 }
 
 /// C2 CheckInstall preflight: return `true` iff the current `ServiceDll`

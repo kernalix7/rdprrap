@@ -445,10 +445,6 @@ pub fn get_service_dll() -> Result<Option<String>> {
 /// `prev_fdeny` is the `fDenyTSConnections` value observed *before* install
 /// (`None` if the value was absent).
 ///
-/// `prev_allow_multi` is the `AllowMultipleTSSessions` value observed *before*
-/// install under `HKLM\...\Winlogon` (`None` if the value was absent). Captured
-/// so uninstall can restore the Winlogon knob verbatim (C1).
-///
 /// `addins_created_by_us` records whether the `AddIns` parent key was absent
 /// pre-install and was therefore created by this installer. When true,
 /// uninstall is allowed to remove the three `AddIns` subkeys and the parent
@@ -457,7 +453,6 @@ pub fn save_uninstall_state(
     original_service_dll: &str,
     install_dir: &Path,
     prev_fdeny: Option<u32>,
-    prev_allow_multi: Option<u32>,
     addins_created_by_us: bool,
 ) -> Result<()> {
     // Use KEY_WOW64_64KEY so that a 32-bit build writes to the same physical
@@ -491,12 +486,6 @@ pub fn save_uninstall_state(
     } else {
         key.set_dword("PrevDenyTSPresent", 0)?;
     }
-    if let Some(v) = prev_allow_multi {
-        key.set_dword("PrevAllowMultipleTSSessions", v)?;
-        key.set_dword("PrevAllowMultipleTSSessionsPresent", 1)?;
-    } else {
-        key.set_dword("PrevAllowMultipleTSSessionsPresent", 0)?;
-    }
     key.set_dword("AddInsCreatedByUs", u32::from(addins_created_by_us))?;
     Ok(())
 }
@@ -515,15 +504,6 @@ pub fn load_uninstall_state() -> Result<Option<UninstallState>> {
     } else {
         None
     };
-    let prev_allow_multi_present = key
-        .get_dword("PrevAllowMultipleTSSessionsPresent")?
-        .unwrap_or(0)
-        != 0;
-    let prev_allow_multi = if prev_allow_multi_present {
-        key.get_dword("PrevAllowMultipleTSSessions")?
-    } else {
-        None
-    };
     // Legacy installs (pre-H5 regression fix) did not record this flag; treat
     // missing as `false` so we do NOT wipe the existing AddIns subtree on
     // upgrade from those builds.
@@ -534,8 +514,6 @@ pub fn load_uninstall_state() -> Result<Option<UninstallState>> {
             install_dir: d,
             prev_fdeny,
             prev_fdeny_present: prev_present,
-            prev_allow_multi,
-            prev_allow_multi_present,
             addins_created_by_us,
         })),
         _ => Ok(None),
@@ -547,38 +525,6 @@ pub fn clear_uninstall_state() -> Result<()> {
     delete_tree_local_machine(keys::INSTALLER_STATE)
 }
 
-/// Canonical path of the Winlogon key that owns `AllowMultipleTSSessions`.
-///
-/// Sourced from `crate::contract::reg::WINLOGON` so every writer of this value
-/// agrees on the same subkey.
-use crate::contract::reg::WINLOGON as WINLOGON_KEY;
-
-/// Value name of the Winlogon multi-session knob restored by
-/// [`restore_allow_multi_ts_sessions`].
-const ALLOW_MULTI_VALUE: &str = "AllowMultipleTSSessions";
-
-/// Restore the Winlogon `AllowMultipleTSSessions` DWORD to its pre-install
-/// state (C1).
-///
-/// * `Some(v)` — the value was present before install; write `v` back.
-/// * `None` — the value was absent before install; delete the value we
-///   set to `1` during install so Windows falls back to its documented
-///   default.
-///
-/// Best-effort: if the Winlogon key cannot be opened for write (unusual on a
-/// healthy Windows install) the restore is a no-op — there is nothing useful
-/// uninstall can do beyond logging, and the caller already logs.
-pub fn restore_allow_multi_ts_sessions(value: Option<u32>) -> Result<()> {
-    let key = match RegKey::open_local_machine(WINLOGON_KEY, KEY_WRITE) {
-        Ok(k) => k,
-        Err(_) => return Ok(()),
-    };
-    match value {
-        Some(v) => key.set_dword(ALLOW_MULTI_VALUE, v),
-        None => key.delete_value(ALLOW_MULTI_VALUE),
-    }
-}
-
 pub struct UninstallState {
     pub original_service_dll: String,
     pub install_dir: String,
@@ -587,12 +533,6 @@ pub struct UninstallState {
     /// Whether a "present" flag was explicitly recorded. On legacy installs
     /// (pre-H4) this will be `false` and callers should fall back to "delete".
     pub prev_fdeny_present: bool,
-    /// Value of `AllowMultipleTSSessions` under `HKLM\...\Winlogon` observed
-    /// before install (`None` if the value was absent). C1.
-    pub prev_allow_multi: Option<u32>,
-    /// Whether the Winlogon `AllowMultipleTSSessions` presence flag was
-    /// explicitly recorded. Legacy installs (pre-C1) report `false`.
-    pub prev_allow_multi_present: bool,
     /// `true` iff the `AddIns` parent key was absent at install time and we
     /// created it (along with the three child subkeys). Only then is uninstall
     /// allowed to remove those subkeys — otherwise the system's pre-existing

@@ -49,7 +49,6 @@ pub mod reg {
         "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\AddIns\\DND Redirector";
     pub const ADDINS_DVC: &str =
         "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\AddIns\\Dynamic VC";
-    pub const WINLOGON: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
 
     /// Private state key the installer uses to persist uninstall metadata.
     pub const INSTALLER_STATE: &str = "SOFTWARE\\rdprrap\\Installer";
