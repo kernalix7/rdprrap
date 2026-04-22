@@ -1,0 +1,9 @@
+# Statically link the MSVC CRT so binaries run on fresh Windows images
+# (e.g. dockur/windows / winpodx containers) that do not ship the VC++
+# Redistributable. Without this, executables fail to start with
+# STATUS_DLL_NOT_FOUND (0xC0000135) when VCRUNTIME140.dll is missing.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

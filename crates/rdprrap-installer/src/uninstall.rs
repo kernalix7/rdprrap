@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use windows::Win32::System::Registry::KEY_WRITE;
 
 use crate::firewall;
@@ -75,13 +75,27 @@ pub fn run(opts: Options) -> Result<()> {
     }
 
     // Step 4: restart TermService so it picks up the original DLL.
+    //
+    // Use the cohort-aware restart (same primitive install uses) — a plain
+    // stop/start here hits ERROR_DEPENDENT_SERVICES_RUNNING (0x0000041B) on
+    // every host where `UmRdpService` or `SessionEnv` is active, because
+    // those share the netsvcs svchost with TermService.
+    //
+    // Failure is non-fatal: the on-disk + registry state that we've already
+    // reverted is authoritative for the NEXT boot, and blocking steps 5/6
+    // (state-key removal + install-dir cleanup) would leave the host in a
+    // harder-to-recover state than "TermService still running the wrapper
+    // until the user reboots".
     if !opts.skip_restart {
-        println!("rdprrap-installer: restarting TermService...");
-        if let Err(e) = service::stop_termservice() {
-            eprintln!("rdprrap-installer: TermService stop: {e} (continuing)");
+        println!("rdprrap-installer: restarting TermService (with cohort)...");
+        if let Err(e) = service::restart_termservice_with_cohort() {
+            eprintln!(
+                "rdprrap-installer: TermService restart failed: {e} (continuing uninstall; \
+                 reboot to complete the restore)"
+            );
+        } else {
+            println!("rdprrap-installer: TermService restarted");
         }
-        service::start_termservice().context("failed to start TermService")?;
-        println!("rdprrap-installer: TermService running");
     } else {
         println!("rdprrap-installer: skipping TermService restart (requested)");
     }

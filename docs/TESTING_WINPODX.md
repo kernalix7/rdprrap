@@ -42,7 +42,7 @@ beyond what winpodx supports, fall back to a standalone VM.
   `rdprrap-installer.exe`, `rdprrap-check.exe`, `rdprrap-conf.exe`,
   `offset-finder.exe`. The installer renames the DLLs at install time
   to their canonical names (`termwrap.dll`, `umwrap.dll`,
-  `rdpendp.dll`).
+  `endpwrap.dll`).
 
   > For i686 builds (only needed if you also plan to drive a
   > separate 32-bit VM from [TESTING.md](TESTING.md) — winpodx itself
@@ -127,7 +127,7 @@ Stop-Transcript
 - [ ] Install transcript shows exit code 0.
 - [ ] After reconnect, `Get-Service TermService` reports `Running`.
 - [ ] `%ProgramFiles%\RDP Wrapper\` exists and contains
-      `termwrap.dll`, `umwrap.dll`, `rdpendp.dll`.
+      `termwrap.dll`, `umwrap.dll`, `endpwrap.dll`.
 - [ ] `reg query "HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters" /v ServiceDll`
       points into `%ProgramFiles%\RDP Wrapper\`.
 - [ ] `icacls %ProgramFiles%\RDP Wrapper` shows SYSTEM + Administrators

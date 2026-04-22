@@ -42,7 +42,7 @@ winpodx 는 별도 VM 없이 Linux 개발 호스트에서
   `termwrap_dll.dll`, `umwrap_dll.dll`, `endpwrap_dll.dll`,
   `rdprrap-installer.exe`, `rdprrap-check.exe`, `rdprrap-conf.exe`,
   `offset-finder.exe`. 인스톨러가 설치 시점에 DLL 을 정식 이름
-  (`termwrap.dll`, `umwrap.dll`, `rdpendp.dll`) 으로 변경합니다.
+  (`termwrap.dll`, `umwrap.dll`, `endpwrap.dll`) 으로 변경합니다.
 
   > i686 빌드가 필요한 경우 (winpodx 자체는 x64 전용이므로
   > [TESTING.ko.md](TESTING.ko.md) 의 별도 32비트 VM 을 돌릴
@@ -128,7 +128,7 @@ Stop-Transcript
 - [ ] install transcript 의 종료 코드 0.
 - [ ] 재접속 후 `Get-Service TermService` 가 `Running`.
 - [ ] `%ProgramFiles%\RDP Wrapper\` 가 존재하고
-      `termwrap.dll`, `umwrap.dll`, `rdpendp.dll` 포함.
+      `termwrap.dll`, `umwrap.dll`, `endpwrap.dll` 포함.
 - [ ] `reg query "HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters" /v ServiceDll`
       이 `%ProgramFiles%\RDP Wrapper\` 내부를 가리킴.
 - [ ] `icacls %ProgramFiles%\RDP Wrapper` 가 SYSTEM + Administrators 에

@@ -57,7 +57,7 @@ sections below all pass on that OS/arch pair.
 Pass criteria:
 - [ ] Exit code 0.
 - [ ] `%ProgramFiles%\RDP Wrapper\` created, contains `termwrap.dll`,
-      `umwrap.dll`, `rdpendp.dll`.
+      `umwrap.dll`, `endpwrap.dll`.
 - [ ] `HKLM\SYSTEM\CurrentControlSet\Services\TermService\Parameters\ServiceDll`
       points into `%ProgramFiles%\RDP Wrapper\`.
 - [ ] `HKLM\SOFTWARE\rdprrap\Installer` exists and is writable only by
