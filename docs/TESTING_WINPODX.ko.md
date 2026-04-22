@@ -29,13 +29,29 @@ winpodx 는 별도 VM 없이 Linux 개발 호스트에서
 
 - winpodx README 에 따라 KVM + Podman(또는 Docker) 이 설치된 Linux 호스트.
 - winpodx 가 작동하는 상태 (`winpodx run notepad` 성공).
-- 로컬에서 빌드된 `rdprrap` 릴리스 산출물:
+- `rdprrap` 릴리스 산출물. Linux 에서는
+  [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) 을
+  사용합니다 — `cargo build --target x86_64-pc-windows-msvc` 가
+  찾지 못하는 MSVC SDK + CRT 를 자동으로 가져와 링크합니다:
   ```bash
-  cargo build --release --target x86_64-pc-windows-msvc
+  cargo install cargo-xwin            # 1회성
+  sudo zypper install lld             # openSUSE (또는: apt install lld)
+  cargo xwin build --release --target x86_64-pc-windows-msvc --workspace
   ```
   산출물은 `target/x86_64-pc-windows-msvc/release/` 에 생성됩니다:
-  `termwrap.dll`, `umwrap.dll`, `rdpendp.dll`, `rdprrap-installer.exe`,
-  `rdprrap-check.exe`, `rdprrap-conf.exe`, `offset-finder.exe`.
+  `termwrap_dll.dll`, `umwrap_dll.dll`, `endpwrap_dll.dll`,
+  `rdprrap-installer.exe`, `rdprrap-check.exe`, `rdprrap-conf.exe`,
+  `offset-finder.exe`. 인스톨러가 설치 시점에 DLL 을 정식 이름
+  (`termwrap.dll`, `umwrap.dll`, `rdpendp.dll`) 으로 변경합니다.
+
+  > i686 빌드가 필요한 경우 (winpodx 자체는 x64 전용이므로
+  > [TESTING.ko.md](TESTING.ko.md) 의 별도 32비트 VM 을 돌릴
+  > 계획이 있을 때만 해당), cargo-xwin 이 기본적으로는 x86 SDK 를
+  > 받지 않습니다. 명시적으로 추가:
+  > ```bash
+  > XWIN_ARCH=x86,x86_64 cargo xwin build --release \
+  >   --target i686-pc-windows-msvc --workspace
+  > ```
 - 호스트에서 쓸 두 번째 RDP 클라이언트: `xfreerdp` 또는 `Remmina`.
 - **DebugView** (`Dbgview.exe`) 를 컨테이너에 복사해두면 로그 분석이
   쉽습니다 (선택, 다만 강력 권장).

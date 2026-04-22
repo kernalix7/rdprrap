@@ -28,13 +28,30 @@ beyond what winpodx supports, fall back to a standalone VM.
 
 - Linux host with KVM + Podman (or Docker) installed, as per winpodx README.
 - winpodx checked out and working (`winpodx run notepad` succeeds).
-- `rdprrap` release artifacts built locally:
+- `rdprrap` release artifacts. On Linux, use
+  [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) — it
+  provides the MSVC SDK + CRT that `cargo build --target
+  x86_64-pc-windows-msvc` otherwise fails to find:
   ```bash
-  cargo build --release --target x86_64-pc-windows-msvc
+  cargo install cargo-xwin            # one-time
+  sudo zypper install lld             # openSUSE (or: apt install lld)
+  cargo xwin build --release --target x86_64-pc-windows-msvc --workspace
   ```
   Artifacts land under `target/x86_64-pc-windows-msvc/release/`:
-  `termwrap.dll`, `umwrap.dll`, `rdpendp.dll`, `rdprrap-installer.exe`,
-  `rdprrap-check.exe`, `rdprrap-conf.exe`, `offset-finder.exe`.
+  `termwrap_dll.dll`, `umwrap_dll.dll`, `endpwrap_dll.dll`,
+  `rdprrap-installer.exe`, `rdprrap-check.exe`, `rdprrap-conf.exe`,
+  `offset-finder.exe`. The installer renames the DLLs at install time
+  to their canonical names (`termwrap.dll`, `umwrap.dll`,
+  `rdpendp.dll`).
+
+  > For i686 builds (only needed if you also plan to drive a
+  > separate 32-bit VM from [TESTING.md](TESTING.md) — winpodx itself
+  > is x64-only), cargo-xwin skips the x86 SDK by default. Add it
+  > explicitly:
+  > ```bash
+  > XWIN_ARCH=x86,x86_64 cargo xwin build --release \
+  >   --target i686-pc-windows-msvc --workspace
+  > ```
 - A second RDP client on the host: `xfreerdp` or `Remmina`.
 - **DebugView** (`Dbgview.exe`) copied into the container for log capture
   (optional but highly recommended for triage).
