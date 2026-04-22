@@ -1,0 +1,154 @@
+name: Release
+
+# Triggered when a version tag is pushed (e.g. `v0.1.0`). Cross-builds
+# Windows x64 and x86 release binaries, generates a third-party license
+# bundle for the shipped runtime dependencies, packages everything into
+# per-arch ZIPs, and publishes a GitHub release with the ZIPs attached.
+#
+# The release notes are extracted from the matching CHANGELOG section —
+# e.g. tag `v0.1.0` pulls the body of the `## [0.1.0]` section.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # required to create the release
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+          - target: i686-pc-windows-msvc
+            arch: x86
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install cargo-about
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # stretch 0.3.2 publishes without its LICENSE file (upstream
+      # packaging bug — the crate's `include` list omits it). Upstream
+      # github.com/vislyhq/stretch confirms MIT (GitHub API SPDX: mit).
+      # We vendor the upstream LICENSE text in this repo and drop it
+      # into the cargo registry cache so cargo-about can surface it
+      # like any other dependency.
+      - name: Restore stretch LICENSE (upstream packaging bug)
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem -Directory -Recurse `
+                   -Path "$env:USERPROFILE\.cargo\registry\src" `
+                   -Filter "stretch-0.3.2" |
+                 Select-Object -First 1
+          if ($null -eq $src) {
+            Write-Error "stretch-0.3.2 not found in cargo registry"
+            exit 1
+          }
+          Copy-Item -Path "vendor/stretch-LICENSE" `
+                    -Destination "$($src.FullName)/LICENSE"
+          Write-Host "Restored LICENSE at $($src.FullName)/LICENSE"
+
+      - name: Generate THIRD_PARTY_LICENSES.txt
+        run: >
+          cargo about generate
+          --target ${{ matrix.target }}
+          --output-file THIRD_PARTY_LICENSES.txt
+          about.txt.hbs
+
+      - name: Package release ZIP
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $pkgName = "rdprrap-$version-windows-${{ matrix.arch }}"
+          $pkgDir  = "dist/$pkgName"
+          New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/*.exe" -Destination $pkgDir
+          Copy-Item "target/${{ matrix.target }}/release/*.dll" -Destination $pkgDir
+          Copy-Item "LICENSE"                   -Destination $pkgDir
+          Copy-Item "THIRD_PARTY_LICENSES.txt"  -Destination $pkgDir
+          Copy-Item "README.md"                 -Destination $pkgDir
+          Copy-Item "CHANGELOG.md"              -Destination $pkgDir
+          Compress-Archive -Path $pkgDir -DestinationPath "dist/$pkgName.zip"
+          Write-Host "--- package contents:"
+          Get-ChildItem $pkgDir | Format-Table Name, Length
+          Write-Host "--- dist:"
+          Get-ChildItem dist *.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rdprrap-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: rdprrap-*
+          merge-multiple: true
+
+      - name: Extract CHANGELOG section for ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { flag=1; next }
+            flag && /^## \[/       { exit }
+                                    { if (flag) print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "ERROR: no changelog section matches [$VERSION] in CHANGELOG.md" >&2
+            exit 1
+          fi
+          # Trim leading blank lines.
+          sed -i -e '/./,$!d' release-notes.md
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "--- assets to attach ---"
+          ls -la dist/
+          gh release create "$GITHUB_REF_NAME" \
+            --title "rdprrap $VERSION" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            dist/*.zip

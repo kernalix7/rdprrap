@@ -9,7 +9,15 @@
 
 ## [Unreleased]
 
-## [0.1.0-rc1] - 2026-04-22
+## [0.1.0] - 2026-04-22
+
+### 이 릴리스의 범위
+0.1.0 은 멀티세션 RDP 패치 파이프라인 (`termwrap` + 인스톨러 +
+check + conf + offset-finder) 을 공식 기능으로 출시. `umwrap` /
+`endpwrap` 은 원본 rdpwrap 과의 레이아웃 연속성 때문에 설치
+페이로드에 함께 포함되지만 현재 **dormant** (아래 *알려진 한계*
+참고). 지원 Windows SKU 확장과 USB / 카메라 / 오디오 래퍼 활성화는
+이후 릴리스에서 추적.
 
 ### 수정됨
 - `rdprrap-installer` 제거 경로가 `restart_termservice_with_cohort`
@@ -30,8 +38,8 @@
   `endpwrap.dll` 이었고 TESTING 문서가 잘못 쓰여있었음.
 
 ### 런타임 검증 (2026-04-22)
-- Windows Server 2025 x64 (빌드 10.0.26200.0) 에서 설치 → 제거
-  완전 round-trip 통과 (Linux 호스트 + winpodx 컨테이너).
+- Windows 11 x64 (빌드 10.0.26200.0) 에서 설치 → 제거 완전
+  round-trip 통과 (Linux 호스트 + winpodx / dockur-windows 컨테이너).
 - 멀티세션 smoke: 두 개의 인터랙티브 세션이 동시에 사용 가능,
   DebugView 에 `TermWrap:` 패치 적용 라인 확인, `patch not found`
   0건.
@@ -43,20 +51,22 @@
   제거, `fDenyTSConnections` 설치 전 값 복원.
 
 ### 알려진 한계
-- **테스트 매트릭스 좁음** — 실제 Windows 상에서 end-to-end 검증된
-  SKU 는 Server 2025 x64 한 대뿐. Server 2022, Windows 11 24H2 /
-  23H2, Windows 10 22H2, i686 런타임 경로 전부 컴파일 + 유닛 테스트
-  범위만. 미검증 termsrv 빌드에서 오프셋 drift 가능성 — 그 때는
-  `--assert-all` 의 전체 stdout 과 termsrv.dll VersionInfo 를
-  함께 수집할 것.
-- **`umwrap` / `endpwrap` DLL 이 설치되어도 비활성** — 파일은
+- **지원 SKU 가 좁음** — 런타임 end-to-end 검증된 환경은 Windows 11
+  x64 (빌드 10.0.26200.0) 한 대뿐. Windows Server 2025 / 2022,
+  Windows 11 24H2 / 23H2, Windows 10 22H2, 그리고 모든 i686 런타임
+  경로는 컴파일 + 유닛 테스트 범위. `offset-finder` 는 패턴 기반이라
+  미검증 termsrv.dll 빌드에서 우아하게 실패 (drift) 할 수 있음 —
+  패턴이 안 맞으면 `--assert-all` 의 전체 stdout 과 termsrv.dll
+  VersionInfo 를 함께 수집해서 보고.
+- **`umwrap` / `endpwrap` 은 이 릴리스에서 dormant** — DLL 은
   `%ProgramFiles%\RDP Wrapper\` 에 들어가지만 Windows 가 로드하지
   않음. `UmRdpService` 와 오디오 엔드포인트 COM 서버는
   `System32\umrdp.dll` / `System32\rdpendp.dll` 을 직접 로드하며,
-  `rdprrap` 은 아직 WFP / SFC 를 통과하는 DLL 리다이렉션 메커니즘을
-  구현하지 않음. 따라서 USB / 카메라 리다이렉션 패치와 오디오 캡처
-  패치는 **이 릴리스에선 런타임 효과 없음**. 0.1.0 정식 전에 처리
-  예정.
+  0.1.0 은 아직 WFP / SFC 를 통과하는 DLL 리다이렉션 메커니즘을
+  제공하지 않음. 따라서 USB / 카메라 리다이렉션 패치와 오디오 캡처
+  패치는 0.1.0 에서 **런타임 효과 없음** — `termwrap` 의 멀티세션
+  패치가 유일한 런타임 활성 컴포넌트. 활성화는 이후 릴리스에서
+  추적.
 - `%ProgramFiles%\RDP Wrapper\` ACL 하드닝이 Program Files 부모
   상속에 의존하며 explicit protected DACL 을 설정하지 않음. 쓰기
   권한은 여전히 SYSTEM / Administrators / TrustedInstaller 로 제한

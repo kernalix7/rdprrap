@@ -9,7 +9,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
-## [0.1.0-rc1] - 2026-04-22
+## [0.1.0] - 2026-04-22
+
+### Scope of this release
+0.1.0 ships the core multi-session RDP patching pipeline
+(`termwrap` + installer + check + conf + offset-finder). The
+`umwrap` / `endpwrap` wrappers are included in the install payload
+for continuity with the original rdpwrap layout, but are dormant —
+see *Known limitations* below. Expansion of supported Windows SKUs
+and activation of the USB / camera / audio wrappers are tracked
+toward a later release.
 
 ### Fixed
 - `rdprrap-installer` uninstall path now uses
@@ -31,8 +40,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   said `endpwrap.dll`; the TESTING docs were wrong.
 
 ### Verified (runtime, 2026-04-22)
-- End-to-end install / uninstall round-trip on Windows Server 2025 x64
-  (build 10.0.26200.0) via a winpodx container on a Linux host.
+- End-to-end install / uninstall round-trip on Windows 11 x64
+  (build 10.0.26200.0) inside a winpodx / dockur-windows container on
+  a Linux host.
 - Multi-session RDP smoke: two concurrent interactive sessions remain
   usable in parallel, `TermWrap:` patch-applied lines present in
   DebugView, zero `patch not found` entries.
@@ -45,20 +55,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   `fDenyTSConnections` value.
 
 ### Known limitations
-- **Tested matrix is narrow** — only Windows Server 2025 x64 has been
-  run end-to-end on real Windows. Server 2022, Windows 11 24H2 / 23H2,
-  Windows 10 22H2, and all i686 runtime paths remain compile-only and
-  unit-tested only. Expect `offset-finder` drift on previously-untested
-  `termsrv.dll` builds — capture the full `--assert-all` stdout and the
-  termsrv.dll VersionInfo when that happens.
-- **`umwrap` and `endpwrap` DLLs are inert on install** — they ship
-  into `%ProgramFiles%\RDP Wrapper\` but nothing in Windows loads them.
-  `UmRdpService` and the audio-endpoint COM server load
+- **Supported SKU is narrow** — only Windows 11 x64 (build
+  10.0.26200.0) has been runtime-verified end-to-end. Windows Server
+  2025 / 2022, Windows 11 24H2 / 23H2, Windows 10 22H2, and every
+  i686 runtime path remain compile + unit-test only. `offset-finder`
+  is pattern-based and is expected to degrade gracefully on untested
+  `termsrv.dll` builds — if a pattern misses, capture the full
+  `--assert-all` stdout plus the `termsrv.dll` VersionInfo so the
+  drift can be diagnosed.
+- **`umwrap` and `endpwrap` are dormant in this release** — the DLLs
+  land in `%ProgramFiles%\RDP Wrapper\` but Windows does not load
+  them. `UmRdpService` and the audio-endpoint COM server pull
   `System32\umrdp.dll` and `System32\rdpendp.dll` directly, and
-  `rdprrap` does not yet wire a redirection mechanism that survives
-  WFP / SFC. USB / camera redirection patches and audio-capture
-  patches therefore have **no runtime effect** in this release. Will
-  be addressed before 0.1.0 final.
+  0.1.0 does not ship a redirection mechanism that survives WFP /
+  SFC. The USB / camera / audio-capture patches therefore have no
+  runtime effect in 0.1.0 — the multi-session patches in `termwrap`
+  are the only runtime-active component. Activation is tracked for a
+  future release.
 - ACL hardening on `%ProgramFiles%\RDP Wrapper\` relies on Program
   Files parent inheritance rather than an explicit protected DACL.
   Write access is still restricted to SYSTEM / Administrators /

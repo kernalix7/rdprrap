@@ -1,0 +1,36 @@
+# cargo-about configuration for bundling third-party license notices
+# into the binary release.
+
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+    "0BSD",
+    "BSL-1.0",
+    "MPL-2.0",
+]
+
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false
+
+# stretch 0.3.2 ships without its LICENSE file in the crate tarball
+# (upstream packaging bug — `include` list omits LICENSE). Upstream
+# github.com/vislyhq/stretch confirms MIT (GitHub API SPDX: mit). The
+# upstream LICENSE text is restored into the local crate source cache
+# during the release packaging step so cargo-about can pick it up.
+[stretch.clarify]
+license = "MIT"
+
+[[stretch.clarify.files]]
+path = "LICENSE"
+license = "MIT"
+checksum = "bdba597d9f2b3979740c3376ba4f42c96d06b7eacf0517324b0df0b0a563d8bb"

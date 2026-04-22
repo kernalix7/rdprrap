@@ -1,0 +1,25 @@
+rdprrap — Third-party license notices
+======================================
+
+This binary distribution of rdprrap contains compiled code from the
+following third-party Rust crates. Each crate's license text is
+reproduced below in full. rdprrap itself is MIT-licensed — see the
+top-level LICENSE file.
+
+Total dependencies: {{ overview.0.count }} licenses across
+{{ overview.0.count }} crate(s).
+
+---
+
+{{#each licenses}}
+================================================================================
+License: {{name}} ({{id}})
+SPDX:    {{id}}
+Used by:
+{{#each used_by}}  - {{this.crate.name}} {{this.crate.version}}{{#if this.crate.repository}} ({{this.crate.repository}}){{/if}}
+{{/each}}
+--------------------------------------------------------------------------------
+
+{{{text}}}
+
+{{/each}}
