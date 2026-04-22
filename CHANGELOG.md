@@ -9,6 +9,65 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.0-rc1] - 2026-04-22
+
+### Fixed
+- `rdprrap-installer` uninstall path now uses
+  `restart_termservice_with_cohort` (same primitive install uses). A
+  plain stop/start hit `ERROR_DEPENDENT_SERVICES_RUNNING` (0x041B) on
+  any host where `UmRdpService` or `SessionEnv` was active, leaving the
+  installer state key + install directory behind because the `?` on
+  `start_termservice` bailed out early. Restart failure is now
+  non-fatal — cleanup (state-key removal + install-dir cleanup) always
+  runs, and the reboot message tells the operator how to finish.
+- `.cargo/config.toml` forces `target-feature=+crt-static` for both
+  MSVC targets. Without this, binaries depend on
+  `VCRUNTIME140.dll` / `MSVCP140.dll` and refuse to start on fresh
+  Windows images (STATUS_DLL_NOT_FOUND = 0xC0000135) that do not ship
+  the VC++ Redistributable. Verified via `llvm-readobj`: no MSVC CRT
+  imports remain on any x64 or i686 artifact.
+- Docs: canonical installed name of the audio endpoint wrapper is
+  `endpwrap.dll`, not `rdpendp.dll`. The installer contract has always
+  said `endpwrap.dll`; the TESTING docs were wrong.
+
+### Verified (runtime, 2026-04-22)
+- End-to-end install / uninstall round-trip on Windows Server 2025 x64
+  (build 10.0.26200.0) via a winpodx container on a Linux host.
+- Multi-session RDP smoke: two concurrent interactive sessions remain
+  usable in parallel, `TermWrap:` patch-applied lines present in
+  DebugView, zero `patch not found` entries.
+- `offset-finder --assert-all C:\Windows\System32\termsrv.dll`
+  resolves 7/7 named strings and 7/7 named functions on that build.
+- Uninstall restores `ServiceDll` to `%SystemRoot%\System32\termsrv.dll`,
+  deletes the `%ProgramFiles%\RDP Wrapper\` tree, removes the
+  `rdprrap-RDP-TCP` / `rdprrap-RDP-UDP` firewall rules, clears
+  `HKLM\SOFTWARE\rdprrap\Installer`, and restores the pre-install
+  `fDenyTSConnections` value.
+
+### Known limitations
+- **Tested matrix is narrow** — only Windows Server 2025 x64 has been
+  run end-to-end on real Windows. Server 2022, Windows 11 24H2 / 23H2,
+  Windows 10 22H2, and all i686 runtime paths remain compile-only and
+  unit-tested only. Expect `offset-finder` drift on previously-untested
+  `termsrv.dll` builds — capture the full `--assert-all` stdout and the
+  termsrv.dll VersionInfo when that happens.
+- **`umwrap` and `endpwrap` DLLs are inert on install** — they ship
+  into `%ProgramFiles%\RDP Wrapper\` but nothing in Windows loads them.
+  `UmRdpService` and the audio-endpoint COM server load
+  `System32\umrdp.dll` and `System32\rdpendp.dll` directly, and
+  `rdprrap` does not yet wire a redirection mechanism that survives
+  WFP / SFC. USB / camera redirection patches and audio-capture
+  patches therefore have **no runtime effect** in this release. Will
+  be addressed before 0.1.0 final.
+- ACL hardening on `%ProgramFiles%\RDP Wrapper\` relies on Program
+  Files parent inheritance rather than an explicit protected DACL.
+  Write access is still restricted to SYSTEM / Administrators /
+  TrustedInstaller; `BUILTIN\Users` inherits read+execute.
+- `Start-Transcript` in Windows PowerShell 5.1 does not capture the
+  installer's native console output. Use
+  `.\rdprrap-installer.exe install 2>&1 | Tee-Object install.log` for
+  reliable capture.
+
 ### Added (2026-04)
 - **`rdprrap-installer`**: Rust CLI installer/uninstaller — service registration, registry (KEY_WOW64_64KEY + SDDL-protected uninstall key), firewall rules (TCP+UDP 3389, locale-safe names), install-dir ACL hardening (SetEntriesInAclW + SetNamedSecurityInfoW for SYSTEM + LocalService), `netsvcs` cohort service restart, `VerQueryValueW`-based termsrv.dll version check, `--force` / `--skip-firewall` / `--skip-restart` / `--disable-nla` flags
 - **`rdprrap-check`**: RDP loopback tester — spawns `mstsc /v:127.0.0.2:PORT`, `NlaGuard` RAII (SecurityLayer/UserAuthentication registry backup+restore, Drop-safe on panic), 44 disconnect-reason codes
