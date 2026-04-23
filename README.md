@@ -161,3 +161,10 @@ For security issues, follow the process in [SECURITY.md](SECURITY.md).
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+Portions of rdprrap are ports or reimplementations of upstream
+projects (rdpwrap under Apache-2.0; TermWrap and RDPWrapOffsetFinder
+under MIT). See [NOTICE](NOTICE) for attribution, the full texts of
+those upstream licenses under [vendor/licenses/](vendor/licenses/),
+and `THIRD_PARTY_LICENSES.txt` (generated at release time; bundled
+inside each release ZIP) for the compiled Rust-dependency attributions.

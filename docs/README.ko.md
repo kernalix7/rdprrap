@@ -156,3 +156,10 @@ CI는 push/PR 시 자동 실행: Linux 체크 + Windows x64/x86 풀 빌드.
 ## 라이선스
 
 MIT 라이선스 — 자세한 내용은 [LICENSE](../LICENSE)를 참조하세요.
+
+rdprrap 의 일부는 상위 프로젝트의 port 또는 재구현 (rdpwrap 은
+Apache-2.0, TermWrap 과 RDPWrapOffsetFinder 는 MIT) 입니다. 귀속
+고지는 [NOTICE](../NOTICE), 상위 프로젝트 라이선스 전문은
+[vendor/licenses/](../vendor/licenses/), 컴파일된 Rust 의존성 귀속은
+릴리스 ZIP 내부의 `THIRD_PARTY_LICENSES.txt` (릴리스 시 자동 생성)
+을 참조하세요.

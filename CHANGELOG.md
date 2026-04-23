@@ -9,6 +9,46 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-23
+
+### Fixed
+- Ship upstream source-attribution notices alongside the binaries.
+  Portions of rdprrap are reimplementations of, or mirror the behavior
+  of, three upstream projects whose licenses require copyright-notice
+  preservation and/or license-text distribution:
+    * `stascorp/rdpwrap` (Apache-2.0) — RDPCheck disc-reason table,
+      installer/cohort-restart/ACL contracts, HKLM registry layout,
+      firewall-rule shape. Apache-2.0 §4(a) requires the license text
+      to accompany redistribution; §4(c) requires retaining
+      attribution notices.
+    * `llccd/TermWrap` (MIT) — patcher pattern scanner, PE adjustment,
+      x64 xref / x86 prologue-scan function resolution, DLL export
+      contract. MIT requires the copyright notice be included in
+      every redistribution.
+    * `llccd/RDPWrapOffsetFinder` (MIT) — offset-finder algorithmic
+      design (string scan, xref, branch-follow priority queue).
+
+  The 0.1.0 / 0.1.1 releases bundled only the Cargo-dependency
+  attributions (`THIRD_PARTY_LICENSES.txt`) and were missing these
+  three source-level notices. This was a license-compliance gap.
+
+### Added
+- **`NOTICE`** file at repo root — names each upstream project, the
+  files in rdprrap that derive from it, the license, and the full
+  copyright text (inlined MIT notices; Apache-2.0 license reference).
+- **`vendor/licenses/`** — verbatim upstream license texts, vendored
+  so the release pipeline does not depend on upstream reachability
+  at tag time:
+    * `LICENSE.rdpwrap.Apache-2.0`
+    * `LICENSE.TermWrap.MIT`
+    * `LICENSE.RDPWrapOffsetFinder.MIT`
+- Release workflow bundles both `NOTICE` and the entire
+  `vendor/licenses/` tree into each per-arch release ZIP.
+- `README.md` and `docs/README.ko.md` "License" sections now point
+  readers at `NOTICE` and `vendor/licenses/` for upstream
+  attribution, and at `THIRD_PARTY_LICENSES.txt` for Cargo-dep
+  attribution.
+
 ## [0.1.1] - 2026-04-22
 
 ### Fixed

@@ -1,0 +1,159 @@
+rdprrap — Third-party source attributions
+==========================================
+
+rdprrap is MIT-licensed (see LICENSE).  Portions of this work are ports
+of, or mirror the behavior of, upstream projects under the licenses
+listed below.  Their copyright notices and license texts are reproduced
+here in full as required by the respective licenses.
+
+For attributions to compiled Rust dependencies that are linked into the
+shipped binaries, see THIRD_PARTY_LICENSES.txt — that file is generated
+at release time from the crate graph and is distinct from this file,
+which covers upstream *source-level* derivations.
+
+
+--------------------------------------------------------------------------------
+1) stascorp/rdpwrap  —  Apache License 2.0
+   https://github.com/stascorp/rdpwrap
+
+   Copyright © RDP Wrapper Library contributors (Stas'M Corp. and others).
+
+   The following portions of rdprrap are derived from, ported from, or
+   closely mirror behavior of stascorp/rdpwrap:
+
+     - crates/rdprrap-check/src/disc_reason.rs
+         Disconnect-reason code → text table. Structurally ported from
+         the `case DiscReason of` block in rdpwrap's RDPCheck source.
+         (The displayed strings themselves are from Microsoft's public
+         MSTSCAX ExtendedDisconnectReasonCode documentation and are
+         included under that public documentation grant, not under
+         Apache-2.0.)
+
+     - crates/rdprrap-check/src/main.rs
+         rdprrap-check is a Rust rewrite of rdpwrap's RDPCheck.exe.
+
+     - crates/rdprrap-check/src/rdp.rs
+         Loopback address `127.0.0.2` reuse follows rdpwrap's choice.
+
+     - crates/rdprrap-installer/src/version.rs
+         Version-gate preflight mirrors rdpwrap's supported-version set.
+
+     - crates/rdprrap-installer/src/service.rs
+         netsvcs cohort-service restart mirrors rdpwrap's RDPWInst logic
+         (adapted to `EnumServicesStatusExW`).
+
+     - crates/rdprrap-installer/src/install.rs
+     - crates/rdprrap-installer/src/firewall.rs
+     - crates/rdprrap-installer/src/contract.rs
+         Install directory, ACL hardening target set, firewall-rule
+         behavior, and HKLM layout all match rdpwrap's RDPWInst.dpr
+         contract for drop-in compatibility.
+
+     - crates/rdprrap-conf/src/diag.rs (`WrapperState::InstalledRdpWrap`
+         detection)
+         Recognizes an existing rdpwrap.dll ServiceDll deployment for
+         display purposes.
+
+   In accordance with the Apache License, Version 2.0:
+
+       Licensed under the Apache License, Version 2.0 (the "License");
+       you may not use this file except in compliance with the License.
+       You may obtain a copy of the License at
+
+           http://www.apache.org/licenses/LICENSE-2.0
+
+       Unless required by applicable law or agreed to in writing,
+       software distributed under the License is distributed on an "AS
+       IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+       express or implied.  See the License for the specific language
+       governing permissions and limitations under the License.
+
+   Changes: the above-listed files are reimplementations in Rust; they
+   are not verbatim copies of the Delphi/Object Pascal source in
+   stascorp/rdpwrap.
+
+   The full text of the Apache License, Version 2.0 is available at
+   <http://www.apache.org/licenses/LICENSE-2.0> and is bundled with
+   release artifacts at vendor/licenses/LICENSE.rdpwrap.Apache-2.0.
+
+
+--------------------------------------------------------------------------------
+2) llccd/TermWrap  —  MIT License
+   https://github.com/llccd/TermWrap
+
+   MIT License
+
+   Copyright (c) 2022 llccd and the other contributors
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   "Software"), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+   The following portions of rdprrap mirror behavior from, or are
+   reimplementations of, logic in llccd/TermWrap:
+
+     - crates/patcher/src/pattern.rs  (`pattenMatch` 4-byte-aligned scan)
+     - crates/patcher/src/pe.rs       (PE base/header adjustment logic)
+     - crates/termwrap-dll/**         (patch set, x64 xref resolution,
+         x86 prologue-scan resolution)
+     - crates/offset-finder/src/xref_x86.rs  (x86 branch-follower
+         stride matches TermWrap)
+
+   The TermWrap DLL export contract (e.g. `ServiceMain`,
+   `SvchostPushServiceGlobals`) is the interface rdprrap implements for
+   drop-in compatibility with consumers of the original wrapper; the
+   interface itself is the Windows TermService ABI, not the TermWrap
+   project's copyrighted material, but attribution is acknowledged here
+   out of respect for the upstream work.
+
+
+--------------------------------------------------------------------------------
+3) llccd/RDPWrapOffsetFinder  —  MIT License
+   https://github.com/llccd/RDPWrapOffsetFinder
+
+   MIT License
+
+   Copyright (c) 2021 llccd and the other contributors
+
+   Permission is hereby granted, free of charge, to any person obtaining
+   a copy of this software and associated documentation files (the
+   "Software"), to deal in the Software without restriction, including
+   without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to
+   permit persons to whom the Software is furnished to do so, subject to
+   the following conditions:
+
+   The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+   The following portions of rdprrap use algorithmic approaches first
+   demonstrated in llccd/RDPWrapOffsetFinder:
+
+     - crates/offset-finder/**
+         PDB-free termsrv.dll offset discovery via .rdata string scan,
+         x64 exception-table xref, and x86 prologue-scan with
+         branch-following priority queue.
+--------------------------------------------------------------------------------

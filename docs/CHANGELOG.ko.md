@@ -9,6 +9,42 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-23
+
+### 수정됨
+- 상위 프로젝트의 소스 귀속 고지를 바이너리와 함께 배포. rdprrap
+  의 일부는 세 상위 프로젝트의 재구현 또는 동작 미러링이며, 해당
+  라이선스가 저작권 고지 보존 및 / 또는 라이선스 텍스트 배포를
+  요구합니다:
+    * `stascorp/rdpwrap` (Apache-2.0) — RDPCheck disc-reason 테이블,
+      인스톨러 / cohort-restart / ACL 계약, HKLM 레지스트리 레이아웃,
+      방화벽 규칙 형태. Apache-2.0 §4(a) 는 재배포 시 라이선스
+      텍스트 동반을, §4(c) 는 귀속 고지 보존을 요구.
+    * `llccd/TermWrap` (MIT) — patcher 패턴 스캐너, PE 기준점 조정,
+      x64 xref / x86 prologue-scan 함수 분해, DLL export 계약. MIT
+      는 모든 재배포에 저작권 고지 포함을 요구.
+    * `llccd/RDPWrapOffsetFinder` (MIT) — offset-finder 알고리즘
+      설계 (문자열 스캔, xref, branch-follow priority queue).
+
+  0.1.0 / 0.1.1 릴리스는 Cargo 의존성 귀속 (`THIRD_PARTY_LICENSES.txt`)
+  만 번들링 했고 이 세 건의 소스 레벨 고지가 빠져 있었음 — 라이선스
+  컴플라이언스 gap.
+
+### 추가됨
+- **`NOTICE`** 루트 파일 — 각 상위 프로젝트, 그로부터 파생된
+  rdprrap 내 파일, 라이선스 종류, 저작권 전문 (MIT 는 인라인,
+  Apache-2.0 은 레퍼런스) 기술.
+- **`vendor/licenses/`** — 상위 라이선스 텍스트를 vendoring 해서
+  태그 시점에 상위 리포 접근 여부에 의존하지 않도록 함:
+    * `LICENSE.rdpwrap.Apache-2.0`
+    * `LICENSE.TermWrap.MIT`
+    * `LICENSE.RDPWrapOffsetFinder.MIT`
+- 릴리스 워크플로가 `NOTICE` + `vendor/licenses/` 전체 트리를
+  아치별 릴리스 ZIP 에 번들링.
+- `README.md` / `docs/README.ko.md` 의 "License" 섹션이 상위 귀속은
+  `NOTICE` 와 `vendor/licenses/` 로, Cargo 의존성 귀속은
+  `THIRD_PARTY_LICENSES.txt` 로 안내.
+
 ## [0.1.1] - 2026-04-22
 
 ### 수정됨
