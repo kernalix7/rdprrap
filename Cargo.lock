@@ -168,7 +168,7 @@ checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "endpwrap-dll"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced-x86",
  "patcher",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "offset-finder"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "iced-x86",
@@ -417,7 +417,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "patcher"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced-x86",
  "thiserror",
@@ -506,7 +506,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rdprrap-check"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "native-windows-derive",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "rdprrap-conf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "native-windows-derive",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "rdprrap-installer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "termwrap-dll"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced-x86",
  "patcher",
@@ -698,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "umwrap-dll"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced-x86",
  "patcher",

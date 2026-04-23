@@ -9,6 +9,44 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-22
+
+### 수정됨
+- `rdprrap-installer` 의 레지스트리 readback 이 과할당된 버퍼 꼬리의
+  이물질 바이트 쌍을 디코딩된 문자열에 흘려넣을 수 있었음 — 설치 전
+  `ServiceDll` 값이 `HKLM\SOFTWARE\rdprrap\Installer\OriginalServiceDll`
+  에 끝에 여분의 문자가 추가된 채로 저장됨 (#1 에서 `termsrv.dll` →
+  `termsrv.dlll` 로 보고). 이 상태에서 `uninstall` 을 실행하면 rollback
+  경로가 손상된 값을 복원하여 `TermService` 가 존재하지 않는 DLL 을
+  가리키게 되고, 다음 부팅 시 RDP 불능.
+
+  이제 `RegKey::get_string` 과 `get_service_dll` 모두 `RegQueryValueExW`
+  / `RegGetValueW` 가 실제로 기록한 바이트 수 (`lpcbData` out-param) 를
+  기준으로 디코딩된 버퍼를 트리밍하며, 할당 전체에 대한
+  `while buf.last() == Some(0) { pop }` 에 의존하지 않음.
+
+### 테스트
+- `HKCU\Software\rdprrap-installer-tests\` 하위에서 동작하는 Windows
+  전용 레지스트리 round-trip 회귀 테스트 추가 — 권한 승격 불필요, 비특권
+  Windows CI 러너에서 실행 가능. 각 테스트는 invocation 별 격리된
+  subkey (PID + atomic counter) 를 생성하고 Drop 에서 하위 트리를
+  삭제하는 RAII 가드를 사용.
+
+### 0.1.0 설치본 완화책
+0.1.0 으로 설치된 호스트에서 `rdprrap-installer.exe uninstall` 을
+실행하기 전에, 저장된 `ServiceDll` 타깃을 먼저 확인:
+
+```
+reg query "HKLM\SOFTWARE\rdprrap\Installer" /v OriginalServiceDll
+```
+
+표시된 경로가 정확히 `.dll` 로 끝나지 않으면, uninstall 전에 덮어쓰기:
+
+```
+reg add "HKLM\SOFTWARE\rdprrap\Installer" /v OriginalServiceDll ^
+  /t REG_EXPAND_SZ /d "%SystemRoot%\System32\termsrv.dll" /f
+```
+
 ## [0.1.0] - 2026-04-22
 
 ### 이 릴리스의 범위

@@ -239,7 +239,8 @@ impl RegKey {
         if size == 0 {
             return Ok(Some(String::new()));
         }
-        // Round up to whole u16 units.
+        // Round up to whole u16 units for allocation; the *authoritative*
+        // post-read length comes from `size2` below, not from this.
         let u16_len = (size as usize).div_ceil(2);
         let mut buf = vec![0u16; u16_len];
         let mut size2 = size;
@@ -257,8 +258,15 @@ impl RegKey {
         };
         win32_ok(status).with_context(|| format!("RegQueryValueExW({name}) [data]"))?;
 
-        // Drop trailing NULs.
-        while buf.last().copied() == Some(0) {
+        // Trim to the bytes RegQueryValueExW actually wrote — NOT to the
+        // buffer size. Relying solely on `while buf.last() == Some(0)` lets
+        // any non-NUL byte sitting past the real data in the over-allocated
+        // tail leak into the decoded string (reported in issue #1 as
+        // `termsrv.dll` read back as `termsrv.dlll`).
+        let actual_u16 = std::cmp::min((size2 as usize) / 2, buf.len());
+        buf.truncate(actual_u16);
+        // Strip the single REG_SZ / REG_EXPAND_SZ trailing NUL if present.
+        if buf.last().copied() == Some(0) {
             buf.pop();
         }
         Ok(Some(String::from_utf16_lossy(&buf)))
@@ -429,7 +437,11 @@ pub fn get_service_dll() -> Result<Option<String>> {
         )
     };
     win32_ok(status).context("RegGetValueW(ServiceDll) data")?;
-    while buf.last().copied() == Some(0) {
+    // Trim to the bytes RegGetValueW actually wrote — see `get_string`
+    // above for why the buffer tail cannot be trusted.
+    let actual_u16 = std::cmp::min((size2 as usize) / 2, buf.len());
+    buf.truncate(actual_u16);
+    if buf.last().copied() == Some(0) {
         buf.pop();
     }
     Ok(Some(String::from_utf16_lossy(&buf)))
@@ -696,5 +708,151 @@ mod tests {
             Path::new("C:\\Program Files\\RDP Wrapper\\termwrap.dll"),
             Path::new("C:\\Program Files\\RDP Wrapper")
         ));
+    }
+
+    // --- Windows-only registry round-trip regression tests -----------------
+    //
+    // These guard against the failure mode reported in issue #1
+    // (`termsrv.dll` read back as `termsrv.dlll`). They run on any
+    // unprivileged Windows host because they use an `HKCU` subkey, so the
+    // Windows CI matrix exercises them without elevation.
+
+    #[cfg(target_os = "windows")]
+    mod readback_roundtrip {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use windows::core::PCWSTR;
+        use windows::Win32::System::Registry::{
+            RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+            KEY_WRITE, REG_CREATE_KEY_DISPOSITION, REG_OPTION_NON_VOLATILE,
+        };
+
+        use super::super::*;
+
+        /// Per-test isolated HKCU subkey — avoids cross-test interference
+        /// when cargo runs tests in parallel. Counter is unique within the
+        /// process, PID disambiguates parallel `cargo test` invocations.
+        fn unique_test_subkey() -> String {
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let pid = std::process::id();
+            format!("Software\\rdprrap-installer-tests\\readback-{pid}-{n}")
+        }
+
+        /// RAII wrapper that deletes the HKCU test subtree on drop.
+        struct HkcuTestKey {
+            key: RegKey,
+            subpath: String,
+        }
+
+        impl HkcuTestKey {
+            fn create() -> Self {
+                let subpath = unique_test_subkey();
+                let wpath = to_wide(&subpath);
+                let mut handle = HKEY::default();
+                let mut disposition = REG_CREATE_KEY_DISPOSITION::default();
+                // SAFETY: `wpath` is a NUL-terminated UTF-16 string; `handle`
+                // and `disposition` are writable out-params.
+                let status = unsafe {
+                    RegCreateKeyExW(
+                        HKEY_CURRENT_USER,
+                        PCWSTR(wpath.as_ptr()),
+                        0,
+                        PCWSTR::null(),
+                        REG_OPTION_NON_VOLATILE,
+                        KEY_READ | KEY_WRITE,
+                        None,
+                        &mut handle,
+                        Some(&mut disposition),
+                    )
+                };
+                assert!(
+                    status == ERROR_SUCCESS,
+                    "RegCreateKeyExW(HKCU\\{subpath}) failed: 0x{:08x}",
+                    status.0
+                );
+                let key = RegKey { handle };
+                HkcuTestKey { key, subpath }
+            }
+        }
+
+        impl Drop for HkcuTestKey {
+            fn drop(&mut self) {
+                // Close the handle first, then delete the subtree via HKCU.
+                let _ = unsafe { RegCloseKey(self.key.handle) };
+                self.key.handle = HKEY::default();
+                let wpath = to_wide(&self.subpath);
+                // SAFETY: `wpath` is NUL-terminated; best-effort cleanup so
+                // we don't care about the return status.
+                let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(wpath.as_ptr())) };
+            }
+        }
+
+        /// The exact failure mode from issue #1: write the pre-install
+        /// `ServiceDll` value, read it back, and verify the readback is
+        /// byte-for-byte identical — *not* a suffix-growing string.
+        #[test]
+        fn readback_does_not_grow_trailing_extension() {
+            let holder = HkcuTestKey::create();
+            let expected = "C:\\WINDOWS\\System32\\termsrv.dll";
+
+            holder
+                .key
+                .set_string("OriginalServiceDll", expected, /*expand=*/ true)
+                .expect("set_string");
+            let got = holder
+                .key
+                .get_string("OriginalServiceDll")
+                .expect("get_string")
+                .expect("OriginalServiceDll should be present after set");
+
+            assert_eq!(
+                got, expected,
+                "registry round-trip corrupted the value: wrote {expected:?}, read {got:?}"
+            );
+            assert!(
+                got.ends_with(".dll"),
+                "registry readback grew the extension: {got:?}"
+            );
+            assert!(
+                !got.ends_with(".dlll"),
+                "issue #1 regression: readback yielded 'dlll' suffix: {got:?}"
+            );
+            assert_eq!(
+                got.encode_utf16().count(),
+                expected.encode_utf16().count(),
+                "byte length must match input exactly"
+            );
+        }
+
+        /// Paranoid variant: several representative shapes (REG_SZ vs
+        /// REG_EXPAND_SZ, with and without an environment variable in the
+        /// value, short and long strings) — all must round-trip identically.
+        #[test]
+        fn readback_roundtrip_across_shapes() {
+            let cases: &[(&str, bool)] = &[
+                ("C:\\WINDOWS\\System32\\termsrv.dll", true),
+                ("%SystemRoot%\\System32\\termsrv.dll", true),
+                ("C:\\Program Files\\RDP Wrapper", false),
+                ("x", false),
+                ("", false),
+                (
+                    "a-fairly-long-value-with-some-repetition-aaaaaaaaaaaa.dll",
+                    true,
+                ),
+            ];
+            for (value, expand) in cases {
+                let holder = HkcuTestKey::create();
+                holder
+                    .key
+                    .set_string("RoundTrip", value, *expand)
+                    .unwrap_or_else(|e| panic!("set_string({value:?}) failed: {e}"));
+                let got = holder
+                    .key
+                    .get_string("RoundTrip")
+                    .unwrap_or_else(|e| panic!("get_string({value:?}) failed: {e}"))
+                    .unwrap_or_else(|| panic!("missing value for {value:?}"));
+                assert_eq!(&got, value, "round-trip mismatch for {value:?}");
+            }
+        }
     }
 }

@@ -9,6 +9,46 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-22
+
+### Fixed
+- `rdprrap-installer` registry readback could leak a stray byte pair
+  from the over-allocated buffer tail into the decoded string — the
+  pre-install `ServiceDll` value got persisted to
+  `HKLM\SOFTWARE\rdprrap\Installer\OriginalServiceDll` with an extra
+  trailing character (reported in #1 as `termsrv.dll` → `termsrv.dlll`).
+  The rollback path on `uninstall` would then restore that corrupted
+  value and leave `TermService` pointing at a non-existent DLL,
+  breaking RDP on the next boot.
+
+  Both `RegKey::get_string` and `get_service_dll` now trim the decoded
+  buffer to the exact byte count that `RegQueryValueExW` /
+  `RegGetValueW` wrote (the `lpcbData` out-param) instead of relying
+  on `while buf.last() == Some(0) { pop }` on the full allocation.
+
+### Tests
+- Added Windows-only registry round-trip regression tests under
+  `HKCU\Software\rdprrap-installer-tests\` — no elevation required, so
+  they run on the unprivileged Windows CI runner. Each test creates a
+  per-invocation isolated subkey (PID + atomic counter) with an RAII
+  cleanup guard that deletes the subtree on drop.
+
+### Mitigation for 0.1.0 installs
+Before running `rdprrap-installer.exe uninstall` on a host installed
+with 0.1.0, operators should verify the saved `ServiceDll` target:
+
+```
+reg query "HKLM\SOFTWARE\rdprrap\Installer" /v OriginalServiceDll
+```
+
+If the displayed path does not end in exactly `.dll`, overwrite it
+before uninstall:
+
+```
+reg add "HKLM\SOFTWARE\rdprrap\Installer" /v OriginalServiceDll ^
+  /t REG_EXPAND_SZ /d "%SystemRoot%\System32\termsrv.dll" /f
+```
+
 ## [0.1.0] - 2026-04-22
 
 ### Scope of this release
