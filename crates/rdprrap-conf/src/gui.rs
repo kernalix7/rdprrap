@@ -568,7 +568,7 @@ fn radio_to_state(b: bool) -> nwg::RadioButtonState {
 /// Simple modal presenting the project license text.
 fn show_license_dialog() {
     const TEXT: &str = "rdprrap — MIT License\n\n\
-        Copyright (c) 2026 rdprrap contributors\n\n\
+        Copyright (c) 2026 Kim DaeHyun\n\n\
         Permission is hereby granted, free of charge, to any person obtaining a copy \
         of this software and associated documentation files (the \"Software\"), to deal \
         in the Software without restriction, including without limitation the rights \

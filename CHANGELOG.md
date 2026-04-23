@@ -9,6 +9,29 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-23
+
+### Fixed (license compliance — continued)
+- `NOTICE` was incomplete. 0.1.2 listed 9 rdpwrap-derived files but a
+  deeper audit found **16** Rust sources that port from, mirror, or
+  reference specific Delphi files in `stascorp/rdpwrap`. `NOTICE` now
+  enumerates all of them, grouped by upstream binary
+  (`RDPWInst.exe → rdprrap-installer`,
+   `RDPConf.exe  → rdprrap-conf`,
+   `RDPCheck.exe → rdprrap-check`), so a future reviewer can see the
+  derivation boundary per upstream tool rather than per file.
+- `CODE_OF_CONDUCT.md` and `docs/CODE_OF_CONDUCT.ko.md` now cite the
+  Creative Commons Attribution 4.0 International (CC BY 4.0) license
+  that governs the Contributor Covenant text. The prior attribution
+  block matched the adopter template on
+  <https://www.contributor-covenant.org> but did not name the CC BY
+  license itself.
+- Copyright-line consistency: `rdprrap-conf`'s About-dialog MIT text
+  read "Copyright (c) 2026 rdprrap contributors" while `LICENSE` and
+  the bundled `THIRD_PARTY_LICENSES.txt` read "Copyright (c) 2026 Kim
+  DaeHyun". Aligned the About dialog to the `LICENSE` text so the
+  three places all agree.
+
 ## [0.1.2] - 2026-04-23
 
 ### Fixed

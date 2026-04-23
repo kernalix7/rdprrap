@@ -19,40 +19,72 @@ which covers upstream *source-level* derivations.
    Copyright © RDP Wrapper Library contributors (Stas'M Corp. and others).
 
    The following portions of rdprrap are derived from, ported from, or
-   closely mirror behavior of stascorp/rdpwrap:
+   closely mirror behavior of stascorp/rdpwrap.  Source comments in
+   each file name the specific upstream Delphi source file or block
+   they relate to.
 
+   RDPCheck.exe → `rdprrap-check`
      - crates/rdprrap-check/src/disc_reason.rs
          Disconnect-reason code → text table. Structurally ported from
-         the `case DiscReason of` block in rdpwrap's RDPCheck source.
-         (The displayed strings themselves are from Microsoft's public
-         MSTSCAX ExtendedDisconnectReasonCode documentation and are
-         included under that public documentation grant, not under
-         Apache-2.0.)
-
+         the `case DiscReason of` block in rdpwrap's RDPCheck source
+         (upstream: `src-rdpcheck/MainUnit.pas`).  The displayed text
+         strings themselves are from Microsoft's public MSTSCAX
+         ExtendedDisconnectReasonCode documentation and are included
+         under that public documentation grant, not under Apache-2.0.
      - crates/rdprrap-check/src/main.rs
-         rdprrap-check is a Rust rewrite of rdpwrap's RDPCheck.exe.
-
+         `rdprrap-check` is a Rust rewrite of rdpwrap's RDPCheck.exe.
+     - crates/rdprrap-check/src/gui.rs
+         Window layout intentionally mirrors the essentials of the
+         original 640x480 Delphi VCL form (`src-rdpcheck/MainUnit.dfm`),
+         minus the embedded MSTSCAX control.
      - crates/rdprrap-check/src/rdp.rs
          Loopback address `127.0.0.2` reuse follows rdpwrap's choice.
 
-     - crates/rdprrap-installer/src/version.rs
-         Version-gate preflight mirrors rdpwrap's supported-version set.
+   RDPConf.exe → `rdprrap-conf`
+     - crates/rdprrap-conf/src/main.rs
+         `rdprrap-conf` is a Rust replacement for the Delphi
+         `RDPConf.exe` (upstream `src-rdpconfig/`).
+     - crates/rdprrap-conf/src/gui.rs
+         Two-column layout, live-diagnostics timer, and control
+         grouping all mirror the original `RDPConf.exe` window; we
+         poll every 1 s instead of upstream's 250 ms.
+     - crates/rdprrap-conf/src/registry.rs
+         `Shadow` dual-write policy mirrors upstream — the original
+         `RDPConf` writes both locations.
+     - crates/rdprrap-conf/src/settings.rs
+         `ReadSettings` / `WriteSettings` behavior mirrors
+         `RDPConf.exe`'s registry I/O.
+     - crates/rdprrap-conf/src/diag.rs
+         `WrapperState::InstalledRdpWrap` detection recognises an
+         existing `rdpwrap.dll` ServiceDll deployment for display.
 
-     - crates/rdprrap-installer/src/service.rs
-         netsvcs cohort-service restart mirrors rdpwrap's RDPWInst logic
-         (adapted to `EnumServicesStatusExW`).
-
+   RDPWInst.exe → `rdprrap-installer`
+     - crates/rdprrap-installer/src/main.rs
+         Replicates the high-level flow of the Delphi `RDPWInst.exe`
+         (upstream `src-installer/RDPWInst.dpr`).
+     - crates/rdprrap-installer/src/cli.rs
+         Default "install on no subcommand" behavior matches
+         `RDPWInst.exe`'s flag-style defaults.
      - crates/rdprrap-installer/src/install.rs
+         Install directory, ServiceDll rewrite, fDenyTSConnections
+         handling, AllowMultipleTSSessions handling.  The TS AddIns
+         block (`contract::reg::ADDINS_*`) behaviorally mirrors
+         `RDPWInst.dpr` lines 982..1022 verbatim (the three subkey
+         Name / Type values — no Delphi source text was copied).
+     - crates/rdprrap-installer/src/service.rs
+         netsvcs cohort-service restart mirrors `RDPWInst.dpr`'s
+         "shut the whole svchost group" logic (adapted to
+         `EnumServicesStatusExW`).
      - crates/rdprrap-installer/src/firewall.rs
+         Rule names / port / shape follow `RDPWInst.dpr`'s netsh
+         invocations (TCP + UDP on 3389, locale-safe naming).
      - crates/rdprrap-installer/src/contract.rs
-         Install directory, ACL hardening target set, firewall-rule
-         behavior, and HKLM layout all match rdpwrap's RDPWInst.dpr
-         contract for drop-in compatibility.
-
-     - crates/rdprrap-conf/src/diag.rs (`WrapperState::InstalledRdpWrap`
-         detection)
-         Recognizes an existing rdpwrap.dll ServiceDll deployment for
-         display purposes.
+         AddIns Name/Type constants match `RDPWInst.dpr` (the
+         `Type = -1 signed` sentinel for Dynamic VC is preserved
+         as `0xFFFFFFFF` per Windows REG_DWORD wire format).
+     - crates/rdprrap-installer/src/version.rs
+         CheckTermsrvVersion preflight warns on builds outside the
+         set upstream `RDPWInst.dpr` is known to patch.
 
    In accordance with the Apache License, Version 2.0:
 

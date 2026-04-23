@@ -9,6 +9,28 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-23
+
+### 수정됨 (라이선스 컴플라이언스 — 추가)
+- `NOTICE` 가 불완전했음. 0.1.2 에선 rdpwrap 파생 파일 9 개를 나열
+  했지만, 더 깊게 감사한 결과 실제로 **16 개의 Rust 소스**가
+  `stascorp/rdpwrap` 의 특정 Delphi 파일을 포트하거나 미러링하고
+  있었음. `NOTICE` 를 상위 바이너리별로 재조직해서
+  (`RDPWInst.exe → rdprrap-installer`,
+   `RDPConf.exe  → rdprrap-conf`,
+   `RDPCheck.exe → rdprrap-check`) 리뷰어가 파일별이 아니라 상위
+  도구별 파생 경계를 한눈에 볼 수 있도록 함.
+- `CODE_OF_CONDUCT.md` 와 `docs/CODE_OF_CONDUCT.ko.md` 에 Contributor
+  Covenant 원문을 관장하는 Creative Commons Attribution 4.0
+  International (CC BY 4.0) 라이선스 명시 추가. 기존 출처 블록은
+  contributor-covenant.org 의 adopter 템플릿과는 일치했지만 CC BY
+  자체를 명시하지는 않았음.
+- Copyright 줄 일관성: `rdprrap-conf` About 다이얼로그의 MIT 텍스트가
+  "Copyright (c) 2026 rdprrap contributors" 로 돼 있었는데 `LICENSE`
+  / 번들 `THIRD_PARTY_LICENSES.txt` 는 "Copyright (c) 2026 Kim
+  DaeHyun" — 세 곳이 서로 다르지 않도록 About 다이얼로그를 `LICENSE`
+  쪽으로 정렬.
+
 ## [0.1.2] - 2026-04-23
 
 ### 수정됨

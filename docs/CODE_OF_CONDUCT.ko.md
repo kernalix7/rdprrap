@@ -56,5 +56,12 @@
 
 ## 출처
 
-본 문서는 Contributor Covenant v2.1을 기반으로 작성되었습니다:
-https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
+본 문서는 [Contributor Covenant][covenant] v2.1 을 기반으로 작성 및
+축약되었습니다.  원문은
+<https://www.contributor-covenant.org/version/2/1/code_of_conduct.html>
+에서 확인할 수 있습니다.  Contributor Covenant 는 Creative Commons
+Attribution 4.0 International ([CC BY 4.0][ccby]) 라이선스로 배포됩니다.
+섹션은 축약 및 재작성되었으며, 위 링크는 원본 전문을 가리킵니다.
+
+[covenant]: https://www.contributor-covenant.org
+[ccby]: https://creativecommons.org/licenses/by/4.0/
