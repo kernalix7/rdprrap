@@ -1,19 +1,24 @@
-use patcher::patch::{debug_log, write_patch};
+use patcher::patch::debug_log;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 use patcher::pattern::find_pattern_in_section;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 use patcher::pe::LoadedPe;
 use windows::Win32::Foundation::HMODULE;
 
 /// Wide string: "TerminalServices-DeviceRedirection-Licenses-TSAudioCaptureAllowed"
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 const ALLOW_AUDIO_CAPTURE_BYTES: &[u8] =
     b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0D\0e\0v\0i\0c\0e\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0-\0L\0i\0c\0e\0n\0s\0e\0s\0-\0T\0S\0A\0u\0d\0i\0o\0C\0a\0p\0t\0u\0r\0e\0A\0l\0l\0o\0w\0e\0d\0\0\0";
 
 /// `mov eax, 1; ret` — 6 bytes, patches function start to always return TRUE
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 const MOV_EAX_1_RET: &[u8] = &[0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3];
 
 /// Apply rdpendp.dll patches for audio recording redirection.
 ///
 /// # Safety
 /// `hmod` must be a valid handle to loaded rdpendp.dll; all other threads suspended.
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 pub unsafe fn apply_patches(hmod: HMODULE) {
     let base = hmod.0 as usize;
 
@@ -53,10 +58,27 @@ pub unsafe fn apply_patches(hmod: HMODULE) {
         x86_apply::apply(&pe, audio_capture_rva);
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
-    {
-        let _ = (&pe, audio_capture_rva);
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: `pe` wraps a loaded rdpendp.dll; threads suspended by caller.
+    unsafe {
+        arm64_apply::apply(&pe, audio_capture_rva);
     }
+}
+
+/// Unsupported CPU architecture fallback.
+///
+/// Other Windows architectures may load and forward rdpendp.dll exports, but
+/// audio-capture patching is disabled unless an architecture-specific patcher
+/// exists.
+///
+/// # Safety
+/// `hmod` must be a valid handle to loaded rdpendp.dll.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
+pub unsafe fn apply_patches(_hmod: HMODULE) {
+    debug_log(
+        "EndpWrap: CPU architecture is not supported for runtime patching; \
+         forwarding original rdpendp.dll without modifications\n",
+    );
 }
 
 // =====================================================================
@@ -64,9 +86,11 @@ pub unsafe fn apply_patches(hmod: HMODULE) {
 // =====================================================================
 #[cfg(target_arch = "x86_64")]
 mod x64 {
-    use super::{debug_log, write_patch, MOV_EAX_1_RET};
     use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
+    use patcher::patch::write_patch;
     use patcher::pe::LoadedPe;
+
+    use super::{debug_log, MOV_EAX_1_RET};
 
     /// Apply rdpendp.dll audio-capture patch on x64.
     ///
@@ -129,9 +153,11 @@ mod x64 {
 // =====================================================================
 #[cfg(target_arch = "x86")]
 mod x86_apply {
-    use super::{debug_log, write_patch, MOV_EAX_1_RET};
     use crate::x86_walk::{function_references_rva, PROLOGUE};
+    use patcher::patch::write_patch;
     use patcher::pe::LoadedPe;
+
+    use super::{debug_log, MOV_EAX_1_RET};
 
     /// Apply rdpendp.dll audio-capture patch on x86.
     ///
@@ -183,5 +209,41 @@ mod x86_apply {
         }
 
         debug_log("EndpWrap: x86 AllowAudioCapture not found\n");
+    }
+}
+
+// =====================================================================
+// ARM64 path — .pdata function scan + ADRP/ADD string reference
+// =====================================================================
+#[cfg(target_arch = "aarch64")]
+mod arm64_apply {
+    use patcher::arm64;
+    use patcher::patch::{bytecodes, write_patch};
+    use patcher::pe::LoadedPe;
+
+    use super::debug_log;
+
+    /// Apply rdpendp.dll audio-capture patch on ARM64.
+    ///
+    /// # Safety
+    /// `pe` wraps a loaded rdpendp.dll; threads suspended.
+    pub(super) unsafe fn apply(pe: &LoadedPe, audio_capture_rva: usize) {
+        let func = match arm64::find_function_referencing_rva(pe, audio_capture_rva) {
+            Some(func) => func,
+            None => {
+                debug_log("EndpWrap: ARM64 AllowAudioCapture function not found\n");
+                return;
+            }
+        };
+
+        let func_addr = pe.adjusted_base + func.begin_address as usize;
+        // SAFETY: func_addr is the start of an ARM64 function inside loaded PE;
+        // threads are suspended by the caller.
+        match unsafe { write_patch(func_addr, bytecodes::ARM64_MOV_W0_1_RET) } {
+            Ok(_) => debug_log("EndpWrap: ARM64 AllowAudioCapture patched\n"),
+            Err(e) => debug_log(&format!(
+                "EndpWrap: ARM64 AllowAudioCapture patch write failed: {e}\n"
+            )),
+        }
     }
 }

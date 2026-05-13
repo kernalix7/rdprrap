@@ -9,6 +9,33 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-13
+
+### 추가됨
+- ARM64 Windows 빌드 scaffold: `aarch64-pc-windows-msvc` 가 워크스페이스
+  전체에서 타입 체크되고, static CRT rustflags 와 CI 빌드/정적 산출물
+  체크 작업으로 보호됨.
+- `umwrap-dll` 과 `endpwrap-dll` 의 실험적 ARM64 런타임 패칭.
+  `patcher::arm64` 가 ARM64 `.pdata` 함수 엔트리, ADR/ADRP+ADD 정책
+  문자열 참조, 근처 BL 호출을 탐색함. `umwrap` 은 정책 BL 호출을
+  `mov w0,#1` 로 바꾸고, `endpwrap` 은 참조된 오디오 캡처 함수 시작을
+  `mov w0,#1; ret` 로 바꿈.
+- `termwrap-dll` 의 실험적 ARM64 런타임 패칭. ARM64 경로는 같은
+  termsrv 정책 문자열을 `.pdata` 로 해석하고, DefPolicy 필드 체크,
+  SingleUser/LocalOnly false 반환, AppServer/NonRDP true 반환,
+  PropertyDevice BL 결과 false 반환, SL policy 질의 BL 호출 true 반환을 패치함.
+  production 지원으로 취급하려면 실제 Windows ARM64 런타임 검증이 아직 필요.
+
+### 수정됨
+- `rdprrap-installer install --force` 가 이제 race-safe `CREATE_NEW` 복사
+  전에 기존 설치된 래퍼 DLL을 실제로 교체함. `--force` 없이 대상 DLL이
+  이미 있으면 낮은 수준의 Win32 생성 오류 대신 "use --force" 안내와
+  함께 일찍 실패하도록 함.
+- `offset-finder` 가 ARM64 PE32+ 이미지를 x64 로 취급하지 않도록 함.
+  이제 순수 ARM64 `termsrv.dll` 이미지는 ARM64 문자열/함수/BL-site
+  리포트를 출력하고, ARM64EC/ARM64X 하이브리드 이미지만 별도 검증 전까지
+  unsupported 로 보고.
+
 ## [0.1.3] - 2026-04-23
 
 ### 수정됨 (라이선스 컴플라이언스 — 추가)

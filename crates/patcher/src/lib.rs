@@ -1,3 +1,4 @@
+pub mod arm64;
 pub mod disasm;
 pub mod error;
 pub mod patch;

@@ -78,7 +78,9 @@ pub fn run(opts: Options) -> Result<()> {
     validate_install_dir(&install_dir, created_install_dir)?;
 
     // Step 2: copy DLLs. Refuse to follow reparse points on the destination.
-    copy_wrapper_dlls(&source_dir, &install_dir)?;
+    // `--force` also replaces existing plain files so upgrades/reinstalls can
+    // refresh the on-disk wrapper payload instead of failing at CREATE_NEW.
+    copy_wrapper_dlls(&source_dir, &install_dir, opts.force)?;
 
     // H3: grant SYSTEM + LocalService read/execute on the install dir so the
     // wrapper DLL is loadable from every service account upstream rdpwrap
@@ -295,7 +297,7 @@ fn validate_install_dir(dir: &Path, created_by_us: bool) -> Result<()> {
     Ok(())
 }
 
-fn copy_wrapper_dlls(source: &Path, target: &Path) -> Result<()> {
+fn copy_wrapper_dlls(source: &Path, target: &Path, overwrite_existing: bool) -> Result<()> {
     let mut missing = Vec::new();
     for (built_name, canonical_name) in paths::WRAPPER_DLLS {
         let src = source.join(built_name);
@@ -319,20 +321,32 @@ fn copy_wrapper_dlls(source: &Path, target: &Path) -> Result<()> {
         // reparse points before writing so the replacement is a real file we
         // own. `FILE_FLAG_OPEN_REPARSE_POINT` on the attribute query below
         // means `is_reparse_point` examines the literal name, not its target.
-        if dst.exists() && is_reparse_point(&dst)? {
-            eprintln!(
-                "rdprrap-installer: {} was a reparse point — removing before copy",
-                dst.display()
-            );
-            fs::remove_file(&dst)
-                .with_context(|| format!("remove reparse point {}", dst.display()))?;
+        if dst.exists() {
+            if is_reparse_point(&dst)? {
+                eprintln!(
+                    "rdprrap-installer: {} was a reparse point — removing before copy",
+                    dst.display()
+                );
+                fs::remove_file(&dst)
+                    .with_context(|| format!("remove reparse point {}", dst.display()))?;
+            } else if overwrite_existing {
+                eprintln!("rdprrap-installer: replacing existing {}", dst.display());
+                fs::remove_file(&dst)
+                    .with_context(|| format!("remove existing {}", dst.display()))?;
+            } else {
+                bail!(
+                    "destination DLL already exists: {}. Use --force to replace \
+                     an existing rdprrap install.",
+                    dst.display()
+                );
+            }
         }
 
         // Race-safe write: open `dst` with `CREATE_NEW` + exclusive share so
-        // that any attacker who re-planted a reparse point (or any other file)
-        // between the `remove_file` above and this open call causes an
-        // explicit `ERROR_FILE_EXISTS` failure rather than a silently-
-        // followed redirection to an attacker-controlled target.
+        // that any attacker who planted or re-planted a reparse point (or any
+        // other file) before this open call causes an explicit
+        // `ERROR_FILE_EXISTS` failure rather than a silently-followed
+        // redirection to an attacker-controlled target.
         // `FILE_FLAG_OPEN_REPARSE_POINT` makes the open literal so a race-
         // planted reparse point fails the `CREATE_NEW` check instead of being
         // silently traversed. We then write the source bytes straight into

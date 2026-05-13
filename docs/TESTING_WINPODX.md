@@ -11,14 +11,15 @@ the fastest way to verify the **x64 rows** of [TESTING.md](TESTING.md)
 from a Linux development host without keeping a separate VM.
 
 This document is a subset of [TESTING.md](TESTING.md) adapted to the
-container environment. For x86 coverage and multi-OS matrix runs
-beyond what winpodx supports, fall back to a standalone VM.
+container environment. For x86 coverage, ARM64 build/static checks, ARM64
+runtime validation, and multi-OS matrix runs beyond what winpodx supports,
+fall back to CI or a standalone VM.
 
 ## Scope
 
 | Covered | Not covered |
 |---------|-------------|
-| x64 `termwrap` / `umwrap` / `endpwrap` on Win10/11/Server 2022/2025 | x86 (i686) builds — dockur/windows is x64-only |
+| x64 `termwrap` / `umwrap` / `endpwrap` on Win10/11/Server 2022/2025 | x86 (i686) builds and ARM64 runtime validation — dockur/windows is x64-only |
 | Installer install/uninstall round-trip under SYSTEM | Multi-arch USB redirection (host USB passthrough varies) |
 | `offset-finder --assert-all` against the container's termsrv.dll | Parallel matrix of multiple Windows versions in one run |
 | Multi-session smoke via a second RDP client | Physical hardware peripherals beyond what Podman/KVM exposes |
@@ -52,6 +53,9 @@ beyond what winpodx supports, fall back to a standalone VM.
   > XWIN_ARCH=x86,x86_64 cargo xwin build --release \
   >   --target i686-pc-windows-msvc --workspace
   > ```
+  > ARM64 artifacts and experimental ARM64 patchers are built in CI or
+  > with an ARM64-capable MSVC toolchain, but winpodx is still x64-only.
+  > Use real Windows ARM64 hardware or an ARM64 VM for runtime evidence.
 - A second RDP client on the host: `xfreerdp` or `Remmina`.
 - **DebugView** (`Dbgview.exe`) copied into the container for log capture
   (optional but highly recommended for triage).

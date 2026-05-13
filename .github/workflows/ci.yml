@@ -32,7 +32,8 @@ jobs:
   # The release x64 job additionally runs an offset-finder smoke test
   # against the runner's own C:\Windows\System32\termsrv.dll — that
   # exercises the pattern-matching pipeline on a real, current Windows
-  # build (hosted runner image ships Server 2022, 10.0.20348.x).
+  # build. Artifact names include the runner alias because windows-latest
+  # can overlap with an explicitly pinned image during GitHub image rollovers.
   build-windows:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -48,11 +49,11 @@ jobs:
           - release
         # Additional row: pin one extra release x64 build to windows-2025 so
         # the offset-finder smoke test also hits a Server 2025 termsrv.dll
-        # alongside whatever windows-latest currently maps to (Server 2022
-        # as of 2026-Q2). Two distinct Windows lines without doubling the
-        # whole matrix. Server 2019 coverage used to live here, but that
-        # image was retired by GitHub Actions on 2025-06-30 — using it now
-        # hangs jobs in the queue indefinitely.
+        # alongside whatever windows-latest currently maps to. When
+        # windows-latest also maps to Server 2025, this still verifies both
+        # the moving alias and the pinned image without artifact-name
+        # collisions. Server 2019 coverage used to live here, but that image
+        # was retired by GitHub Actions on 2025-06-30.
         include:
           - os: windows-2025
             target: x86_64-pc-windows-msvc
@@ -64,7 +65,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}-${{ matrix.profile }}
+          key: ${{ matrix.os }}-${{ matrix.target }}-${{ matrix.profile }}
 
       - name: Build (${{ matrix.profile }})
         run: |
@@ -229,13 +230,103 @@ jobs:
         if: matrix.profile == 'release'
         uses: actions/upload-artifact@v4
         with:
-          name: rdprrap-${{ matrix.target }}
+          name: rdprrap-${{ matrix.os }}-${{ matrix.target }}
           path: |
             target/${{ matrix.target }}/release/*.dll
             target/${{ matrix.target }}/release/offset-finder.exe
             target/${{ matrix.target }}/release/rdprrap-installer.exe
             target/${{ matrix.target }}/release/rdprrap-check.exe
             target/${{ matrix.target }}/release/rdprrap-conf.exe
+
+  # ─── Windows ARM64: build + static artifact checks ───
+  #
+  # CI verifies ARM64 builds and PE/export shape. Runtime validation still
+  # needs real Windows ARM64: termwrap/umwrap/endpwrap should show ARM64
+  # patch-applied logs and termwrap must pass a concurrent-session smoke test.
+  build-windows-arm64:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - debug
+          - release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-pc-windows-msvc-${{ matrix.profile }}
+
+      - name: Build ARM64 (${{ matrix.profile }})
+        run: |
+          $args = @("build", "--target", "aarch64-pc-windows-msvc")
+          if ("${{ matrix.profile }}" -eq "release") { $args += "--release" }
+          cargo @args
+
+      - name: Clippy ARM64
+        run: cargo clippy --target aarch64-pc-windows-msvc --all-targets -- -D warnings
+
+      - name: Install llvm-tools
+        if: matrix.profile == 'release'
+        run: rustup component add llvm-tools-preview
+
+      - name: Verify ARM64 artifacts
+        if: matrix.profile == 'release'
+        shell: pwsh
+        run: |
+          $base = "target/aarch64-pc-windows-msvc/release"
+          $sysroot = (& rustc --print sysroot).Trim()
+          $hostTriple = (& rustc -vV | Select-String "^host: ").ToString().Split()[1]
+          $readobj = Join-Path $sysroot "lib/rustlib/$hostTriple/bin/llvm-readobj.exe"
+          if (!(Test-Path $readobj)) {
+            Write-Error "llvm-readobj.exe not found at $readobj"
+            exit 1
+          }
+
+          function Assert-Export($dll, $name) {
+            $out = & $readobj --coff-exports $dll | Out-String
+            if ($out -notmatch [regex]::Escape($name)) {
+              Write-Error "$dll missing $name export"
+              exit 1
+            }
+          }
+
+          foreach ($name in @("termwrap_dll.dll", "endpwrap_dll.dll", "umwrap_dll.dll")) {
+            $dll = "$base/$name"
+            if (!(Test-Path $dll)) { Write-Error "$name not found"; exit 1 }
+            $info = & $readobj --file-headers $dll | Out-String
+            if ($info -notmatch "IMAGE_FILE_MACHINE_ARM64") {
+              Write-Error "$name is not ARM64"
+              exit 1
+            }
+          }
+
+          Assert-Export "$base/termwrap_dll.dll" "ServiceMain"
+          Assert-Export "$base/termwrap_dll.dll" "SvchostPushServiceGlobals"
+          Assert-Export "$base/endpwrap_dll.dll" "GetTSAudioEndpointEnumeratorForSession"
+          Assert-Export "$base/endpwrap_dll.dll" "DllGetClassObject"
+          Assert-Export "$base/endpwrap_dll.dll" "DllCanUnloadNow"
+
+          foreach ($name in @("offset-finder.exe", "rdprrap-installer.exe", "rdprrap-check.exe", "rdprrap-conf.exe")) {
+            if (!(Test-Path "$base/$name")) {
+              Write-Error "$name not found at $base/$name"
+              exit 1
+            }
+          }
+          Write-Host "ARM64 artifacts: OK"
+
+      - name: Upload ARM64 artifacts
+        if: matrix.profile == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdprrap-aarch64-pc-windows-msvc
+          path: |
+            target/aarch64-pc-windows-msvc/release/*.dll
+            target/aarch64-pc-windows-msvc/release/*.exe
 
   # ─── cargo-deny: license + banned-deps + source-registry policy gate ───
   deny:

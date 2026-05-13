@@ -12,20 +12,22 @@ use crate::error::PatcherError;
 ///   (use thread suspension)
 #[cfg(windows)]
 pub unsafe fn write_patch(addr: usize, bytes: &[u8]) -> Result<usize, PatcherError> {
-    use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
+    use windows::Win32::System::Diagnostics::Debug::{FlushInstructionCache, WriteProcessMemory};
     use windows::Win32::System::Threading::GetCurrentProcess;
 
     let mut written = 0usize;
+    let process = GetCurrentProcess();
 
     // SAFETY: Caller guarantees addr is valid and threads are suspended
     unsafe {
         WriteProcessMemory(
-            GetCurrentProcess(),
+            process,
             addr as *const std::ffi::c_void,
             bytes.as_ptr() as *const std::ffi::c_void,
             bytes.len(),
             Some(&mut written),
         )?;
+        FlushInstructionCache(process, Some(addr as *const std::ffi::c_void), bytes.len())?;
     }
 
     Ok(written)
@@ -139,6 +141,28 @@ pub mod bytecodes {
         0x31, 0xC0, // xor eax, eax
         0xFF, 0xC0, // inc eax
         0xC3, // ret
+    ];
+
+    /// ARM64 `mov w0, #1; ret` — returns TRUE from a BOOL-like function.
+    pub const ARM64_MOV_W0_1_RET: &[u8] = &[
+        0x20, 0x00, 0x80, 0x52, // mov w0, #1
+        0xC0, 0x03, 0x5F, 0xD6, // ret
+    ];
+
+    /// ARM64 `mov w0, #1` — replaces a BL call whose result is tested as TRUE.
+    pub const ARM64_MOV_W0_1: &[u8] = &[
+        0x20, 0x00, 0x80, 0x52, // mov w0, #1
+    ];
+
+    /// ARM64 `mov w0, #0` — replaces a BL call whose result is tested as FALSE.
+    pub const ARM64_MOV_W0_0: &[u8] = &[
+        0x00, 0x00, 0x80, 0x52, // mov w0, #0
+    ];
+
+    /// ARM64 `mov w0, #0; ret` — returns FALSE from a BOOL-like function.
+    pub const ARM64_MOV_W0_0_RET: &[u8] = &[
+        0x00, 0x00, 0x80, 0x52, // mov w0, #0
+        0xC0, 0x03, 0x5F, 0xD6, // ret
     ];
 }
 

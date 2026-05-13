@@ -27,7 +27,7 @@ What actually happened.
 ## Environment
 
 - **OS**: [e.g. Windows 11 23H2, Windows 10 22H2]
-- **Architecture**: x64 / x86
+- **Architecture**: x64 / x86 / ARM64
 - **rdprrap Version**: 
 - **termsrv.dll Version**: [e.g. 10.0.26100.xxxx]
 

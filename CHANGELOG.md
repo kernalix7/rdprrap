@@ -9,6 +9,34 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-13
+
+### Added
+- ARM64 Windows build scaffold: `aarch64-pc-windows-msvc` now type-checks
+  across the workspace, has static-CRT rustflags, and is covered by a
+  CI build/static-artifact job.
+- Experimental ARM64 runtime patching for `umwrap-dll` and `endpwrap-dll`.
+  `patcher::arm64` now scans ARM64 `.pdata` function entries, resolves
+  ADR/ADRP+ADD policy-string references, and locates nearby BL calls.
+  `umwrap` replaces the policy BL call with `mov w0,#1`; `endpwrap` replaces
+  the referenced audio-capture function start with `mov w0,#1; ret`.
+- Experimental ARM64 runtime patching for `termwrap-dll`. The ARM64 path
+  resolves the same termsrv policy strings via `.pdata`, patches DefPolicy
+  field checks, forces single-session/local-only checks false, forces
+  AppServer/NonRDP checks true, patches the PropertyDevice BL result false,
+  and patches SL policy query BL calls to return true. Real Windows ARM64 runtime
+  validation is still required before treating this as production-supported.
+
+### Fixed
+- `rdprrap-installer install --force` now actually replaces existing
+  installed wrapper DLLs before the race-safe `CREATE_NEW` copy. Without
+  `--force`, an existing destination DLL now fails early with a clear
+  "use --force" message instead of surfacing a lower-level Win32 create error.
+- `offset-finder` no longer treats ARM64 PE32+ images as x64. Pure ARM64
+  `termsrv.dll` images now get an ARM64 string/function/BL-site report;
+  ARM64EC/ARM64X hybrid images still report unsupported until separately
+  validated.
+
 ## [0.1.3] - 2026-04-23
 
 ### Fixed (license compliance — continued)

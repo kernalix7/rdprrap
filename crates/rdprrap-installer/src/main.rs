@@ -114,7 +114,8 @@ fn run_non_windows(args: cli::Args) -> Result<()> {
         cli::Command::Plan => plan::print(),
         _ => bail!(
             "rdprrap-installer must be run on Windows. Build with --target \
-             x86_64-pc-windows-msvc or i686-pc-windows-msvc and run on the target host."
+             x86_64-pc-windows-msvc, i686-pc-windows-msvc, or \
+             aarch64-pc-windows-msvc and run on the target host."
         ),
     }
 }

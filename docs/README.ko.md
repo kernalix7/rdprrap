@@ -11,8 +11,9 @@ Rust로 재작성한 RDP Wrapper.
 | **termwrap-dll** | 핵심 RDP 패칭 — 다중 세션 지원, Home/비서버 에디션 정책 우회. 7가지 패치: DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy, CSLQuery::Initialize |
 | **umwrap-dll** | 모든 SKU에서 USB/카메라 PnP 장치 리다이렉션 (레거시 + 모던 Windows) |
 | **endpwrap-dll** | 오디오 녹음 리다이렉션 (TSAudioCaptureAllowed) |
-| **patcher** | 공유 라이브러리 — PE 파싱, x86/x64 디스어셈블리, 런타임 패턴 매칭, 검증된 바이트코드 패치 14개 |
-| **offset-finder** | 독립 실행형 CLI 오프셋 탐색 도구 (pelite 기반, PDB 불필요) |
+| **patcher** | 공유 라이브러리 — PE 파싱, x86/x64 디스어셈블리, ARM64 `.pdata` 함수 스캔, 런타임 패턴 매칭, 바이트코드 패치 18개 |
+| **ARM64 지원** | `aarch64-pc-windows-msvc` 빌드 타깃과 실험적 ARM64 `termwrap`/`umwrap`/`endpwrap` 런타임 패처. production 지원으로 부르기 전 실제 Windows ARM64 검증 필요 |
+| **offset-finder** | x86/x64/ARM64 독립 실행형 CLI 오프셋 탐색 도구 (pelite 기반, PDB 불필요) |
 | **rdprrap-installer** | 설치/제거 CLI — 서비스 등록, 레지스트리, 방화벽(TCP+UDP 3389), 코호트 서비스 재시작, 설치 디렉토리 ACL 강화 (Delphi `RDPWInst.exe` 대체) |
 | **rdprrap-check** | RDP 연결 테스터 — `mstsc.exe`로 127.0.0.2 루프백 접속, NLA 가드 RAII, 44개 종료 사유 코드 (`RDPCheck.exe` 대체) |
 | **rdprrap-conf** | 설정 GUI — native-windows-gui 패널로 진단 + 런타임 RDP 설정(Enable/Port/SingleSession/HideUsers/AllowCustom/AuthMode/Shadow) 제어 (`RDPConf.exe` 대체) |
@@ -25,8 +26,8 @@ Rust로 재작성한 RDP Wrapper.
 | 디스어셈블러 | [iced-x86](https://crates.io/crates/iced-x86) (순수 Rust) |
 | PE 파싱 | [pelite](https://crates.io/crates/pelite) |
 | Windows API | [windows-rs](https://crates.io/crates/windows) |
-| 타겟 | x86_64-pc-windows-msvc, i686-pc-windows-msvc |
-| CI | GitHub Actions (Linux 체크 + Windows x64/x86 빌드) |
+| 타겟 | x86_64-pc-windows-msvc, i686-pc-windows-msvc, aarch64-pc-windows-msvc |
+| CI | GitHub Actions (Linux 체크 + Windows x64/x86 빌드, ARM64 빌드/정적 산출물 체크) |
 
 ## 빠른 시작
 
@@ -42,6 +43,7 @@ cd rdprrap
 
 rustup target add x86_64-pc-windows-msvc
 rustup target add i686-pc-windows-msvc
+rustup target add aarch64-pc-windows-msvc
 
 cargo build --release
 ```
@@ -68,7 +70,7 @@ rdprrap-installer.exe uninstall
 | 플래그 | 효과 |
 |--------|------|
 | `--source DIR` | DLL을 복사할 디렉토리 (기본: 인스톨러 자신의 디렉토리) |
-| `--force` | ServiceDll이 이미 래퍼를 가리키고 있어도 강제 재설치 |
+| `--force` | ServiceDll이 이미 래퍼를 가리키고 있어도 기존 래퍼 DLL을 교체하며 강제 재설치 |
 | `--skip-firewall` | 방화벽 규칙 추가/제거 생략 |
 | `--skip-restart` | TermService 재시작 생략 (수동/재부팅 시 적용) |
 | `--disable-nla` | `UserAuthentication=0` 설정 (레거시 클라이언트용, 옵트인) |
@@ -95,7 +97,8 @@ rdprrap/
 │   │       ├── pe.rs       # PE 헤더/섹션/임포트/예외 테이블 파싱
 │   │       ├── pattern.rs  # 4바이트 정렬 문자열 패턴 매칭 (.rdata)
 │   │       ├── disasm.rs   # iced-x86 디코더 래퍼, xref 검색, 분기 헬퍼
-│   │       └── patch.rs    # WriteProcessMemory 래퍼, NOP 채움, 바이트코드 상수 14개
+│   │       ├── arm64.rs    # ARM64 .pdata 함수 스캔 + ADR/ADRP/ADD/BL 헬퍼
+│   │       └── patch.rs    # WriteProcessMemory 래퍼, NOP 채움, 바이트코드 상수 18개
 │   ├── termwrap-dll/       # cdylib: termsrv.dll 프록시 (핵심 RDP)
 │   │   └── src/patches/    # DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy
 │   ├── umwrap-dll/         # cdylib: umrdp.dll 프록시 (USB/카메라 리다이렉션)
@@ -105,7 +108,7 @@ rdprrap/
 │   ├── rdprrap-check/      # 바이너리: RDP 루프백 테스터 (mstsc + NLA 가드)
 │   └── rdprrap-conf/       # 바이너리: 설정 GUI (native-windows-gui)
 ├── .github/
-│   └── workflows/ci.yml   # Linux 체크 + Windows x64/x86 빌드 매트릭스
+│   └── workflows/ci.yml   # Linux 체크 + Windows x64/x86 빌드 매트릭스 + ARM64 정적 체크
 └── docs/                   # 한국어 문서
 ```
 
@@ -117,6 +120,7 @@ rdprrap/
 4. 패치 오프셋 런타임 탐색:
    - **x64**: `.rdata`에서 알려진 문자열 스캔 → exception table에서 LEA xref 검색 → unwind chain 역추적
    - **x86**: `.text`에서 함수 프롤로그(`8B FF 55 8B EC`) 스캔 → 분기 추적 → PUSH/MOV 즉시값과 문자열 RVA 매칭
+   - **ARM64**: `.pdata` 함수 범위와 ADR/ADRP+ADD 문자열 참조로 정책 체크를 찾음. `termwrap` 은 ARM64 DefPolicy, SingleUser, LocalOnly, AppServer/NonRDP, PropertyDevice, SL policy 경로를 ARM64 전용 바이트코드로 패치. `umwrap` 은 PnP/Camera BL 호출을 `mov w0,#1` 로, `endpwrap` 은 참조 함수 시작을 `mov w0,#1; ret` 로 패치.
 
 ## 패치 종류 (termsrv.dll)
 
@@ -137,7 +141,7 @@ cargo clippy --all-targets -- -D warnings           # 린트
 cargo fmt --check                                   # 포맷 체크
 ```
 
-CI는 push/PR 시 자동 실행: Linux 체크 + Windows x64/x86 풀 빌드.
+CI는 push/PR 시 자동 실행: Linux 체크 + Windows x64/x86 풀 빌드 + ARM64 빌드/정적 산출물 체크.
 
 ## 기여
 

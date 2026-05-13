@@ -4,6 +4,12 @@ use std::path::PathBuf;
 
 mod xref_x86;
 
+const IMAGE_FILE_MACHINE_I386: u16 = 0x014c;
+const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
+const IMAGE_FILE_MACHINE_ARM64: u16 = 0xaa64;
+const IMAGE_FILE_MACHINE_ARM64EC: u16 = 0xa641;
+const IMAGE_FILE_MACHINE_ARM64X: u16 = 0xa64e;
+
 #[derive(Default)]
 struct Args {
     dll_path: Option<String>,
@@ -70,18 +76,71 @@ fn main() -> Result<()> {
 
 /// Load termsrv.dll as a file and parse PE to find offsets
 fn find_offsets_file(path: &std::path::Path, assert_all: bool) -> Result<()> {
+    use pelite::pe32::Pe as Pe32;
+    use pelite::pe64::Pe as Pe64;
+
     let data = std::fs::read(path).context("Failed to read file")?;
     eprintln!("File size: {} bytes", data.len());
 
     // Try PE64 first, then PE32
     if let Ok(pe64) = pelite::pe64::PeFile::from_bytes(&data) {
-        eprintln!("Architecture: x64");
-        find_offsets_pe64(&pe64, assert_all)
+        let machine = pe64.file_header().Machine;
+        match machine {
+            IMAGE_FILE_MACHINE_AMD64 => {
+                eprintln!("Architecture: x64");
+                find_offsets_pe64(&pe64, assert_all)
+            }
+            IMAGE_FILE_MACHINE_ARM64 | IMAGE_FILE_MACHINE_ARM64EC | IMAGE_FILE_MACHINE_ARM64X => {
+                if machine == IMAGE_FILE_MACHINE_ARM64 {
+                    eprintln!("Architecture: ARM64");
+                    find_offsets_pe64_arm64(&pe64, assert_all)
+                } else {
+                    report_unsupported_arch(machine)
+                }
+            }
+            other => bail!(
+                "Unsupported PE32+ machine type: 0x{other:04X} ({})",
+                machine_name(other)
+            ),
+        }
     } else if let Ok(pe32) = pelite::pe32::PeFile::from_bytes(&data) {
-        eprintln!("Architecture: x86");
-        find_offsets_pe32(&pe32, assert_all)
+        let machine = pe32.file_header().Machine;
+        match machine {
+            IMAGE_FILE_MACHINE_I386 => {
+                eprintln!("Architecture: x86");
+                find_offsets_pe32(&pe32, assert_all)
+            }
+            other => bail!(
+                "Unsupported PE32 machine type: 0x{other:04X} ({})",
+                machine_name(other)
+            ),
+        }
     } else {
         bail!("Failed to parse PE file");
+    }
+}
+
+fn report_unsupported_arch(machine: u16) -> Result<()> {
+    println!("[Offset Report]");
+    println!("Arch={}", machine_name(machine));
+    println!("Machine=0x{machine:04X}");
+    println!("Status=UNSUPPORTED");
+    println!();
+    bail!(
+        "{} offset discovery is not implemented. Pure ARM64 images are supported; \
+         ARM64EC/ARM64X hybrid images need separate validation.",
+        machine_name(machine)
+    )
+}
+
+fn machine_name(machine: u16) -> &'static str {
+    match machine {
+        IMAGE_FILE_MACHINE_I386 => "x86",
+        IMAGE_FILE_MACHINE_AMD64 => "x64",
+        IMAGE_FILE_MACHINE_ARM64 => "arm64",
+        IMAGE_FILE_MACHINE_ARM64EC => "arm64ec",
+        IMAGE_FILE_MACHINE_ARM64X => "arm64x",
+        _ => "unknown",
     }
 }
 
@@ -231,6 +290,180 @@ fn find_offsets_pe64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<
                 eprintln!("[Assert] MISSING function xrefs: {missing_funcs:?}");
             }
             bail!("--assert-all: required patterns not all resolved");
+        }
+    }
+
+    Ok(())
+}
+
+fn find_offsets_pe64_arm64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<()> {
+    use patcher::arm64;
+    use pelite::pe64::Pe;
+
+    let image_base = pe.optional_header().ImageBase;
+
+    let rdata = pe
+        .section_headers()
+        .iter()
+        .find(|s| s.name().ok() == Some(".rdata"))
+        .or_else(|| {
+            pe.section_headers()
+                .iter()
+                .find(|s| s.name().ok() == Some(".text"))
+        })
+        .context(".rdata not found")?;
+    let rdata_data = pe
+        .get_section_bytes(rdata)
+        .context("Failed to read .rdata")?;
+    let rdata_va = rdata.VirtualAddress;
+
+    let text = pe
+        .section_headers()
+        .iter()
+        .find(|s| s.name().ok() == Some(".text"))
+        .context(".text not found")?;
+    let text_data = pe.get_section_bytes(text).context("Failed to read .text")?;
+    let text_va = text.VirtualAddress;
+
+    let pdata = pe
+        .section_headers()
+        .iter()
+        .find(|s| s.name().ok() == Some(".pdata"))
+        .context(".pdata not found")?;
+    let pdata_data = pe
+        .get_section_bytes(pdata)
+        .context("Failed to read .pdata")?;
+
+    let patterns: &[(&str, &[u8])] = &[
+        ("CDefPolicy_Query", b"CDefPolicy::Query"),
+        (
+            "IsSingleSessionPerUserEnabled",
+            b"CSessionArbitrationHelper::IsSingleSessionPerUserEnabled",
+        ),
+        (
+            "IsTerminalTypeLocalOnly",
+            b"CSLQuery::IsTerminalTypeLocalOnly",
+        ),
+        (
+            "IsAllowNonRDPStack",
+            b"CRemoteConnectionManager::IsAllowNonRDPStack\0",
+        ),
+        ("IsAppServerInstalled", b"CSLQuery::IsAppServerInstalled\0"),
+        ("IsSingleSessionPerUser", b"IsSingleSessionPerUser\0"),
+        (
+            "AllowRemoteConnections",
+            b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0M\0a\0n\0a\0g\0e\0r\0-\0A\0l\0l\0o\0w\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0s\0\0\0",
+        ),
+        (
+            "AllowMultipleSessions",
+            b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0M\0a\0n\0a\0g\0e\0r\0-\0A\0l\0l\0o\0w\0M\0u\0l\0t\0i\0p\0l\0e\0S\0e\0s\0s\0i\0o\0n\0s\0\0\0",
+        ),
+        (
+            "AllowAppServerMode",
+            b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0M\0a\0n\0a\0g\0e\0r\0-\0A\0l\0l\0o\0w\0A\0p\0p\0S\0e\0r\0v\0e\0r\0M\0o\0d\0e\0\0\0",
+        ),
+        (
+            "AllowMultimon",
+            b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0R\0e\0m\0o\0t\0e\0C\0o\0n\0n\0e\0c\0t\0i\0o\0n\0M\0a\0n\0a\0g\0e\0r\0-\0A\0l\0l\0o\0w\0M\0u\0l\0t\0i\0m\0o\0n\0\0\0",
+        ),
+        (
+            "PropertyDeviceGuid",
+            &[
+                0xD5, 0x59, 0xD3, 0x93, 0x1F, 0x83, 0xB4, 0x47, 0x90, 0xBE, 0x83, 0x83, 0xAF,
+                0x8F, 0x1B, 0x0E,
+            ],
+        ),
+    ];
+
+    println!("[Offset Report]");
+    println!("ImageBase=0x{image_base:X}");
+    println!("Arch=arm64");
+    println!();
+
+    let mut str_rvas: Vec<(&str, Option<usize>)> = Vec::with_capacity(patterns.len());
+    for (name, pattern) in patterns {
+        let rva = find_in_section(rdata_data, rdata_va, pattern);
+        match rva {
+            Some(r) => println!("{name}_str=0x{r:X}"),
+            None => println!("{name}_str=NOT_FOUND"),
+        }
+        str_rvas.push((name, rva));
+    }
+
+    let functions = arm64::functions_from_pdata(pdata_data, text_va, text_data.len());
+    let mut func_found: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    println!();
+    for (name, str_rva_opt) in &str_rvas {
+        let Some(str_rva) = str_rva_opt else {
+            continue;
+        };
+
+        let target_va = image_base + *str_rva as u64;
+        let mut found = false;
+        for func in &functions {
+            let begin = func.begin_address as usize;
+            if begin < text_va as usize {
+                continue;
+            }
+            let offset = begin - text_va as usize;
+            let len = (func.end_address - func.begin_address) as usize;
+            if offset >= text_data.len() {
+                continue;
+            }
+            let end = offset.saturating_add(len).min(text_data.len());
+            if end <= offset {
+                continue;
+            }
+
+            let code = &text_data[offset..end];
+            let code_va = image_base + begin as u64;
+            if let Some(ref_va) = arm64::code_references_addr(code, code_va, target_va) {
+                println!(
+                    "{name}_func=0x{begin:X} (xref at 0x{:X})",
+                    ref_va - image_base
+                );
+                if let Some(bl_va) = arm64::find_bl_after_addr(code, code_va, ref_va, 96) {
+                    println!("{name}_bl_patch=0x{:X}", bl_va - image_base);
+                }
+                func_found.insert(name);
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            println!("{name}_func=NOT_FOUND");
+        }
+    }
+
+    if assert_all {
+        let missing_strings: Vec<&str> = str_rvas
+            .iter()
+            .filter_map(|(n, rva)| rva.is_none().then_some(*n))
+            .collect();
+        let missing_funcs: Vec<&str> = str_rvas
+            .iter()
+            .filter_map(|(n, rva)| (rva.is_some() && !func_found.contains(n)).then_some(*n))
+            .collect();
+
+        println!();
+        println!(
+            "[Assert] strings: {}/{} found, functions: {}/{} resolved",
+            patterns.len() - missing_strings.len(),
+            patterns.len(),
+            func_found.len(),
+            patterns.len()
+        );
+
+        if !missing_strings.is_empty() || !missing_funcs.is_empty() {
+            if !missing_strings.is_empty() {
+                eprintln!("[Assert] MISSING strings: {missing_strings:?}");
+            }
+            if !missing_funcs.is_empty() {
+                eprintln!("[Assert] MISSING function xrefs: {missing_funcs:?}");
+            }
+            bail!("--assert-all: required ARM64 patterns not all resolved");
         }
     }
 
