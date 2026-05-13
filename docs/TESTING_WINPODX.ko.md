@@ -12,14 +12,15 @@ winpodx 는 별도 VM 없이 Linux 개발 호스트에서
 검증할 수 있는 수단입니다.
 
 이 문서는 [TESTING.ko.md](TESTING.ko.md) 의 부분집합을 컨테이너
-환경에 맞게 각색한 것입니다. winpodx 가 커버하지 못하는 x86 커버리지
-및 다중 OS 매트릭스는 독립 VM 으로 돌아가세요.
+환경에 맞게 각색한 것입니다. winpodx 가 커버하지 못하는 x86
+커버리지, ARM64 빌드/정적 체크, ARM64 런타임 검증, 다중 OS
+매트릭스는 CI 또는 독립 VM 으로 돌아가세요.
 
 ## 적용 범위
 
 | 커버 가능                                                      | 커버 불가                                                   |
 |---------------------------------------------------------------|------------------------------------------------------------|
-| Win10/11/Server 2022/2025 에서 x64 `termwrap`/`umwrap`/`endpwrap` | x86 (i686) 빌드 — dockur/windows 는 x64 전용                |
+| Win10/11/Server 2022/2025 에서 x64 `termwrap`/`umwrap`/`endpwrap` | x86 (i686) 빌드와 ARM64 런타임 검증 — dockur/windows 는 x64 전용 |
 | SYSTEM 권한 설치/제거 왕복                                     | 다양한 아키텍처의 USB 리다이렉션 (호스트 USB 패스스루 의존)   |
 | 컨테이너 termsrv.dll 에 대한 `offset-finder --assert-all`      | 한 번의 실행으로 여러 Windows 버전 병렬 매트릭스             |
 | 두 번째 RDP 클라이언트로 멀티세션 smoke                        | Podman/KVM 이 노출하지 않는 물리 주변기기                    |
@@ -52,6 +53,10 @@ winpodx 는 별도 VM 없이 Linux 개발 호스트에서
   > XWIN_ARCH=x86,x86_64 cargo xwin build --release \
   >   --target i686-pc-windows-msvc --workspace
   > ```
+  > ARM64 산출물과 실험적 ARM64 패처는 CI 또는 ARM64 지원 MSVC
+  > 툴체인에서 빌드합니다. 다만 winpodx 는 여전히 x64 전용이므로,
+  > ARM64 런타임 증거는 실제 Windows ARM64 하드웨어나 ARM64 VM 에서
+  > 확보하세요.
 - 호스트에서 쓸 두 번째 RDP 클라이언트: `xfreerdp` 또는 `Remmina`.
 - **DebugView** (`Dbgview.exe`) 를 컨테이너에 복사해두면 로그 분석이
   쉽습니다 (선택, 다만 강력 권장).

@@ -11,8 +11,9 @@ RDP Wrapper rewritten in Rust.
 | **termwrap-dll** | Core RDP patching — multi-session support, policy bypass for Home/non-Server editions. 7 patch types: DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy, CSLQuery::Initialize |
 | **umwrap-dll** | USB/camera PnP device redirection for all SKUs (legacy + modern Windows) |
 | **endpwrap-dll** | Audio recording redirection (TSAudioCaptureAllowed) |
-| **patcher** | Shared library — PE parsing, x86/x64 disassembly, runtime pattern matching, 14 verified bytecode patches |
-| **offset-finder** | Standalone CLI tool for offset detection (pelite-based, no PDB required) |
+| **patcher** | Shared library — PE parsing, x86/x64 disassembly, ARM64 `.pdata` function scanning, runtime pattern matching, 18 bytecode patches |
+| **ARM64 support** | `aarch64-pc-windows-msvc` build target with experimental ARM64 `termwrap`/`umwrap`/`endpwrap` runtime patchers. Real Windows ARM64 validation is still required before calling it production-supported |
+| **offset-finder** | Standalone CLI tool for x86/x64/ARM64 offset detection (pelite-based, no PDB required) |
 | **rdprrap-installer** | Rust CLI installer/uninstaller — service registration, registry setup, firewall rules, cohort service restart, install-dir ACL hardening (replaces Delphi `RDPWInst.exe`) |
 | **rdprrap-check** | RDP connection tester — loopback `127.0.0.2` via `mstsc.exe`, NLA guard RAII, 44 disconnect-reason codes (replaces `RDPCheck.exe`) |
 | **rdprrap-conf** | Configuration GUI — native-windows-gui panel for diagnostics + runtime RDP settings (Enable/Port/SingleSession/HideUsers/AllowCustom/AuthMode/Shadow), replaces `RDPConf.exe` |
@@ -25,8 +26,8 @@ RDP Wrapper rewritten in Rust.
 | Disassembler | [iced-x86](https://crates.io/crates/iced-x86) (pure Rust) |
 | PE Parsing | [pelite](https://crates.io/crates/pelite) |
 | Windows API | [windows-rs](https://crates.io/crates/windows) |
-| Target | x86_64-pc-windows-msvc, i686-pc-windows-msvc |
-| CI | GitHub Actions (Linux check + Windows x64/x86 build) |
+| Target | x86_64-pc-windows-msvc, i686-pc-windows-msvc, aarch64-pc-windows-msvc |
+| CI | GitHub Actions (Linux check + Windows x64/x86 build, ARM64 build/static artifact checks) |
 
 ## Quick Start
 
@@ -42,6 +43,7 @@ cd rdprrap
 
 rustup target add x86_64-pc-windows-msvc
 rustup target add i686-pc-windows-msvc
+rustup target add aarch64-pc-windows-msvc
 
 cargo build --release
 ```
@@ -72,7 +74,7 @@ Additional flags:
 | Flag | Effect |
 |------|--------|
 | `--source DIR` | Directory to copy DLLs from (defaults to the installer's own directory) |
-| `--force` | Reinstall even if ServiceDll already points to the wrapper |
+| `--force` | Reinstall and replace existing wrapper DLLs even if ServiceDll already points to the wrapper |
 | `--skip-firewall` | Do not add/remove firewall rules |
 | `--skip-restart` | Do not restart TermService (apply changes manually or on reboot) |
 | `--disable-nla` | Set `UserAuthentication=0` (opt-in, required for legacy clients) |
@@ -100,7 +102,8 @@ rdprrap/
 │   │       ├── pe.rs       # PE header/section/import/exception table parsing
 │   │       ├── pattern.rs  # 4-byte aligned string pattern matching in .rdata
 │   │       ├── disasm.rs   # iced-x86 decoder wrapper, xref search, branch helpers
-│   │       └── patch.rs    # WriteProcessMemory wrapper, NOP fill, 14 bytecode constants
+│   │       ├── arm64.rs    # ARM64 .pdata function scan + ADR/ADRP/ADD/BL helpers
+│   │       └── patch.rs    # WriteProcessMemory wrapper, NOP fill, 18 bytecode constants
 │   ├── termwrap-dll/       # cdylib: termsrv.dll proxy (core RDP)
 │   │   └── src/patches/    # DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy
 │   ├── umwrap-dll/         # cdylib: umrdp.dll proxy (USB/camera redirection)
@@ -110,7 +113,7 @@ rdprrap/
 │   ├── rdprrap-check/      # Binary: RDP loopback tester (mstsc + NLA guard)
 │   └── rdprrap-conf/       # Binary: configuration GUI (native-windows-gui)
 ├── .github/
-│   └── workflows/ci.yml   # Linux check + Windows x64/x86 build matrix
+│   └── workflows/ci.yml   # Linux check + Windows x64/x86 build matrix + ARM64 static checks
 └── docs/                   # Korean documentation
 ```
 
@@ -122,6 +125,7 @@ rdprrap/
 4. Patch offsets found at runtime:
    - **x64**: Scan `.rdata` for known strings → search exception table for LEA xrefs → backtrace unwind chains to function start
    - **x86**: Scan `.text` for function prologues (`8B FF 55 8B EC`) → follow branches → match PUSH/MOV immediates to string RVAs
+   - **ARM64**: `.pdata` function ranges plus ADR/ADRP+ADD string references locate policy checks. `termwrap` patches ARM64 DefPolicy, SingleUser, LocalOnly, AppServer/NonRDP, PropertyDevice, and SL policy paths with ARM64-specific bytecodes; `umwrap` patches PnP/camera BL calls to `mov w0,#1`; `endpwrap` patches the referenced audio-capture function start to `mov w0,#1; ret`.
 
 ## Patch Types (termsrv.dll)
 
@@ -142,7 +146,7 @@ cargo clippy --all-targets -- -D warnings           # Lint
 cargo fmt --check                                   # Format check
 ```
 
-CI runs automatically on push/PR: Linux check + Windows x64/x86 full build.
+CI runs automatically on push/PR: Linux check + Windows x64/x86 full build + ARM64 build/static artifact checks.
 
 ## Contributing
 

@@ -16,14 +16,30 @@ Thumbs.db
 # AI config (actual files in .priv-storage/, root has symlinks)
 .priv-storage/
 CLAUDE.md
+AGENTS.md
 .cursorrules
 .claude
 .vscode
 WORK_STATUS.md
+CLAUDE.local.md
+.mcp.json
+CLAUDE.md.bak
+AGENTS.md.bak
+.cursorrules.bak
+WORK_STATUS.md.bak
+.gitignore.bak
+.priv-storage/.allow-setup-reread
+.codex/
+.aider*
+.continue/
+.cline/
+.roo/
 
 # Backup toolkit temp files
+tmp-igbkp/
 tmp-igbkp/.work/
 tmp-igbkp/output/
+uninstall-backup-*/
 
 # Environment
 .env

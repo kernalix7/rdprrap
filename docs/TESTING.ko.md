@@ -2,9 +2,9 @@
 
 [English](TESTING.md) | **한국어**
 
-Linux CI 및 Windows CI 빌드(x64/x86, debug/release)는 컴파일 + clippy +
-단위 테스트까지는 커버합니다. 반면 CI 로는 커버할 수 없는 부분이
-있습니다:
+Linux CI 및 Windows CI 빌드는 x64/x86 의 컴파일 + clippy + 단위
+테스트와 ARM64 빌드/정적 체크까지 커버합니다. 반면 CI 로는 커버할
+수 없는 부분이 있습니다:
 
 - 래퍼 DLL 을 실제 `svchost.exe` / `umrdp.dll` / `rdpendp.dll` 호스트에
   로드하여 동작을 확인하는 것.
@@ -26,27 +26,31 @@ VM 스냅샷에서 실행하세요. 실행 사이마다 스냅샷을 복원하�
 
 - RDP 가 기본 비활성화된 Windows VM.
 - `cargo build --release` 로 생성된 해당 아키텍처 빌드 산출물
-  (x64 호스트 → `x86_64-pc-windows-msvc`, x86 호스트 → `i686-pc-windows-msvc`).
+  (x64 호스트 → `x86_64-pc-windows-msvc`, x86 호스트 →
+  `i686-pc-windows-msvc`, ARM64 호스트 → `aarch64-pc-windows-msvc`).
 - 관리자 계정, 별도 머신의 원격 데스크톱 클라이언트(`mstsc.exe`).
 - 선택: DebugView (SysInternals) — `OutputDebugString` 캡처용.
 
 ## 검증 대상 빌드 매트릭스
 
-아래 표의 각 행은 해당 OS 가 지원하는 두 아키텍처 모두에 대해 검증되어야
-합니다. 최신 Windows SKU 들은 더 이상 x86 을 공식 공급하지 않지만,
-구형 x86 VM(Win10 32비트, Windows 7 랩 이미지) 은 i686 경로가
-실제로 검증되는 유일한 장소입니다.
+아래 표의 각 행은 해당 OS 가 지원하는 런타임 지원 아키텍처마다
+검증되어야 합니다. 최신 Windows SKU 들은 더 이상 x86 을 공식 공급하지
+않지만, 구형 x86 VM(Win10 32비트, Windows 7 랩 이미지) 은 i686 경로가
+실제로 검증되는 유일한 장소입니다. ARM64 는 실험적인 상태입니다.
+`termwrap`/`umwrap`/`endpwrap` 모두 ARM64 런타임 패처가 있지만, 전체
+RDP 경로는 실제 ARM64 하드웨어/VM 에서 아직 검증해야 합니다.
 
-| OS                 | x64 | x86 | 비고                                                 |
-|--------------------|-----|-----|------------------------------------------------------|
-| Windows 10 22H2    | ✅  | ⚠️  | x86 커버리지는 레거시 이미지에서만 가능             |
-| Windows 11 23H2    | ✅  | —   | x86 미공급                                           |
-| Windows 11 24H2    | ✅  | —   | 최신 컨슈머 SKU                                      |
-| Server 2022        | ✅  | —   | `windows-latest` 러너와 매칭                          |
-| Server 2025        | ✅  | —   | `windows-2025` 러너와 매칭                            |
+| OS                 | x64 | x86 | ARM64 | 비고                                                 |
+|--------------------|-----|-----|-------|------------------------------------------------------|
+| Windows 10 22H2    | ✅  | ⚠️  | —     | x86 커버리지는 레거시 이미지에서만 가능             |
+| Windows 11 23H2    | ✅  | —   | ⚠️    | ARM64 실험적 런타임 체크                            |
+| Windows 11 24H2    | ✅  | —   | ⚠️    | 최신 컨슈머 SKU; ARM64 실험적 런타임                |
+| Server 2022        | ✅  | —   | —     | `windows-latest` 러너와 매칭                          |
+| Server 2025        | ✅  | —   | —     | `windows-2025` 러너와 매칭                            |
 
-각 행은 아래 **설치 / 런타임 / 제거** 섹션이 모두 통과한 뒤에만
-체크합니다.
+런타임 행은 아래 **설치 / 런타임 / 제거** 섹션이 모두 통과한 뒤에만
+체크합니다. ARM64 를 production 지원으로 표시하려면 `termwrap` 의 실제
+ARM64 patch-applied 로그와 동시 세션 smoke 테스트가 반드시 통과해야 합니다.
 
 ## 1. 설치
 
@@ -68,7 +72,7 @@ VM 스냅샷에서 실행하세요. 실행 사이마다 스냅샷을 복원하�
       TCP/UDP 3389 허용.
 - [ ] `sc query TermService` 결과가 `STATE : 4 RUNNING`.
 
-## 2. 런타임 — termwrap (x64 + x86)
+## 2. 런타임 — termwrap (x64 + x86 + 실험적 ARM64)
 
 ```powershell
 # 별도 머신에서:
@@ -80,6 +84,8 @@ mstsc /v:<target-ip>
       RDP 접속 성공 (동시 세션 smoke 테스트).
 - [ ] DebugView 에 `TermWrap:` 패치 적용 로그가 보이고,
       `patch not found` 경고가 없음.
+- [ ] ARM64 에서는 DebugView 에 ARM64 DefPolicy, SingleUser, LocalOnly,
+      AppServer/NonRDP, PropertyDevice, SL policy 패치 로그가 표시됨.
 - [ ] `rdprrap-check` (타깃에서 실행) 이 루프백 RDP OK 를 리포트.
 - [ ] `rdprrap-conf` (타깃에서 실행) 가 Wrapper, TermService,
       termsrv 버전, RDP-Tcp 리스너를 녹색으로 표시.
@@ -89,20 +95,32 @@ termsrv.dll 레이아웃 변경을 잡기 위해 Windows 11 에서도 반복합�
 못했다는 뜻 — `offset-finder --assert-all C:\Windows\System32\termsrv.dll`
 를 돌려 리포트를 보고 분류합니다.
 
+## ARM64 지원 상태
+
+ARM64 Windows 에서 `termwrap`, `umwrap`, `endpwrap` 모두 ARM64
+patch-applied 로그를 낼 수 있습니다. `termwrap` 은 DefPolicy,
+SingleUser, LocalOnly, AppServer/NonRDP, PropertyDevice, SL policy ARM64
+로그를 보여야 합니다. 이 로그와 실제 Windows ARM64 동시 세션 smoke
+테스트가 함께 통과하기 전까지는 실험적 지원입니다.
+
 ## 3. 런타임 — umwrap (PnP 리다이렉션)
 
-목표: i686 경로가 컴파일만 된 게 아니라 실제로 뭔가를 패치했다는 증명.
+목표: i686 및 ARM64 장치 리다이렉션 경로가 컴파일만 된 게 아니라
+실제로 뭔가를 패치했다는 증명.
 
 - [ ] RDP 클라이언트에서 USB 저장 장치 리다이렉트
       (`mstsc` → 로컬 리소스 → 자세히 → 드라이브).
 - [ ] 디바이스가 RDP 세션 내 `내 PC` 에 표시됨.
 - [ ] DebugView 에 `UmWrap:` 패치 적용 로그, `PnpRedirection patch not found`
       없음.
+- [ ] ARM64 에서는 DebugView 에 `UmWrap: ARM64 PnP patch applied` 표시.
 
 카메라 리다이렉션 (Win10+):
 - [ ] USB 카메라 리다이렉션이 통과.
 - [ ] `.rdata` 에 `CameraRedirectionAllowed` 문자열이 있을 때
       DebugView 가 camera-secondary 패치 적용 로그를 표시.
+- [ ] ARM64 에서는 해당 문자열이 `.rdata` 에 있을 때 DebugView 에
+      `UmWrap: ARM64 Camera patch applied` 표시.
 
 ## 4. 런타임 — endpwrap (오디오 캡처)
 
@@ -110,6 +128,8 @@ termsrv.dll 레이아웃 변경을 잡기 위해 Windows 11 에서도 반복합�
       로컬 리소스 → 원격 오디오 → 녹음: 이 컴퓨터에서 녹음) 해서 RDP
       클라이언트가 마이크 오디오를 원격 세션으로 캡처.
 - [ ] DebugView 에 `EndpWrap:` 패치 적용 로그가 표시됨.
+- [ ] ARM64 에서는 DebugView 에
+      `EndpWrap: ARM64 AllowAudioCapture patched` 표시.
 
 ## 5. 인스톨러 사전 체크 + 실패 케이스
 

@@ -22,7 +22,7 @@ Instead, please report them through [GitHub Security Advisories](https://github.
 2. **Steps to Reproduce** — Detailed steps to reproduce the issue
 3. **Impact** — The potential impact of the vulnerability
 4. **Affected Components** — Which crates/DLLs of rdprrap are affected
-5. **Environment** — Windows version, architecture (x64/x86), termsrv.dll version
+5. **Environment** — Windows version, architecture (x64/x86/ARM64), termsrv.dll version
 
 ### Response Timeline
 

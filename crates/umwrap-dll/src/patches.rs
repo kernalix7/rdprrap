@@ -1,13 +1,17 @@
 use patcher::patch::debug_log;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 use patcher::pattern::find_pattern_in_section;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 use patcher::pe::LoadedPe;
 use windows::Win32::Foundation::HMODULE;
 
 /// Wide string: "TerminalServices-DeviceRedirection-Licenses-PnpRedirectionAllowed"
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 const ALLOW_PNP_BYTES: &[u8] =
     b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0D\0e\0v\0i\0c\0e\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0-\0L\0i\0c\0e\0n\0s\0e\0s\0-\0P\0n\0p\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0A\0l\0l\0o\0w\0e\0d\0\0\0";
 
 /// Wide string: "TerminalServices-DeviceRedirection-Licenses-CameraRedirectionAllowed"
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 const ALLOW_CAMERA_BYTES: &[u8] =
     b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0D\0e\0v\0i\0c\0e\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0-\0L\0i\0c\0e\0n\0s\0e\0s\0-\0C\0a\0m\0e\0r\0a\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0A\0l\0l\0o\0w\0e\0d\0\0\0";
 
@@ -15,6 +19,7 @@ const ALLOW_CAMERA_BYTES: &[u8] =
 ///
 /// # Safety
 /// `hmod` must be a valid handle to the loaded umrdp.dll; all other threads suspended.
+#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
 pub unsafe fn apply_patches(hmod: HMODULE) {
     let base = hmod.0 as usize;
 
@@ -58,13 +63,27 @@ pub unsafe fn apply_patches(hmod: HMODULE) {
         x86_apply::apply(&pe, pnp_rva, camera_rva, legacy);
     }
 
-    // Silence unused warnings on non-x86 host targets when building for
-    // neither architecture (e.g. a cross-compile stub). Neither arm here
-    // is reachable in normal use, but this keeps `cargo check` quiet.
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
-    {
-        let _ = (&pe, pnp_rva, camera_rva, legacy);
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: `pe` wraps a loaded umrdp.dll; caller suspended other threads.
+    unsafe {
+        arm64_apply::apply(&pe, pnp_rva, camera_rva, legacy);
     }
+}
+
+/// Unsupported CPU architecture fallback.
+///
+/// Other Windows architectures may load and forward umrdp.dll exports, but
+/// PnP/camera redirection patching is disabled unless an architecture-specific
+/// patcher exists.
+///
+/// # Safety
+/// `hmod` must be a valid handle to the loaded umrdp.dll.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
+pub unsafe fn apply_patches(_hmod: HMODULE) {
+    debug_log(
+        "UmWrap: CPU architecture is not supported for runtime patching; \
+         forwarding original umrdp.dll without modifications\n",
+    );
 }
 
 // =====================================================================
@@ -363,6 +382,59 @@ mod x86_apply {
         }
         if camera_rva.is_some() && !patched_camera {
             debug_log("UmWrap: x86 CameraRedirection patch not found\n");
+        }
+    }
+}
+
+// =====================================================================
+// ARM64 path — .pdata function scan + ADRP/ADD string reference -> BL patch
+// =====================================================================
+#[cfg(target_arch = "aarch64")]
+mod arm64_apply {
+    use patcher::arm64;
+    use patcher::patch::{bytecodes, write_patch};
+    use patcher::pe::LoadedPe;
+
+    use super::debug_log;
+
+    const CALL_SEARCH_WINDOW: usize = 96;
+
+    /// Apply umrdp.dll PnP/camera patches on ARM64.
+    ///
+    /// # Safety
+    /// `pe` wraps a currently-loaded umrdp.dll; threads are suspended.
+    pub(super) unsafe fn apply(
+        pe: &LoadedPe,
+        pnp_rva: usize,
+        camera_rva: Option<usize>,
+        legacy: bool,
+    ) {
+        if legacy {
+            debug_log("UmWrap: ARM64 legacy slc.dll import detected; using generic BL patch\n");
+        }
+
+        patch_call_after_policy_string(pe, pnp_rva, "PnP");
+
+        if let Some(camera_rva) = camera_rva {
+            patch_call_after_policy_string(pe, camera_rva, "Camera");
+        }
+    }
+
+    fn patch_call_after_policy_string(pe: &LoadedPe, policy_rva: usize, label: &str) {
+        let site = match arm64::find_bl_after_reference_rva(pe, policy_rva, CALL_SEARCH_WINDOW) {
+            Some(site) => site,
+            None => {
+                debug_log(&format!("UmWrap: ARM64 {label} patch site not found\n"));
+                return;
+            }
+        };
+
+        let call_addr = pe.adjusted_base + site.call_rva as usize;
+        // SAFETY: call_addr is a BL instruction inside loaded PE .text; threads
+        // are suspended by the caller.
+        match unsafe { write_patch(call_addr, bytecodes::ARM64_MOV_W0_1) } {
+            Ok(_) => debug_log(&format!("UmWrap: ARM64 {label} patch applied\n")),
+            Err(e) => debug_log(&format!("UmWrap: ARM64 {label} patch write failed: {e}\n")),
         }
     }
 }

@@ -2,8 +2,9 @@
 
 **English** | [한국어](TESTING.ko.md)
 
-Linux CI builds and Windows CI builds (x64/x86, debug/release) cover
-compile + clippy + unit tests. What CI cannot cover:
+Linux CI builds and Windows CI builds cover compile + clippy + unit
+tests for x64/x86, plus ARM64 build/static checks. What CI cannot
+cover:
 
 - Loading the wrapper DLLs into a real `svchost.exe` / `umrdp.dll` /
   `rdpendp.dll` host.
@@ -24,27 +25,33 @@ reusing a [winpodx](https://github.com/kernalix7/winpodx) container
 
 - Windows VM with RDP disabled by default.
 - Matching build artefact from `cargo build --release`
-  (x64 host → `x86_64-pc-windows-msvc`, x86 host → `i686-pc-windows-msvc`).
+  (x64 host → `x86_64-pc-windows-msvc`, x86 host →
+  `i686-pc-windows-msvc`, ARM64 host → `aarch64-pc-windows-msvc`).
 - Admin account, Remote Desktop client (`mstsc.exe`) on a second machine.
 - Optional: DebugView (SysInternals) to capture `OutputDebugString`.
 
 ## Build Targets to Verify
 
-Each row below must be verified on both architectures the target OS
-supports. Modern Windows SKUs no longer ship x86, but older x86 VMs
-(Win10 32-bit, Windows 7 lab images) are still the only place the
-i686 path gets real coverage.
+Each row below must be verified on each runtime-supported
+architecture the target OS supports. Modern Windows SKUs no longer
+ship x86, but older x86 VMs (Win10 32-bit, Windows 7 lab images) are
+still the only place the i686 path gets real coverage. ARM64 is
+experimental: `termwrap`/`umwrap`/`endpwrap` now have ARM64 runtime
+patchers, but the full RDP path still must be validated on real ARM64
+hardware/VMs.
 
-| OS                 | x64 | x86 | Notes                                              |
-|--------------------|-----|-----|----------------------------------------------------|
-| Windows 10 22H2    | ✅  | ⚠️  | x86 coverage only via legacy images                |
-| Windows 11 23H2    | ✅  | —   | x86 not shipped                                    |
-| Windows 11 24H2    | ✅  | —   | Latest consumer SKU                                |
-| Server 2022        | ✅  | —   | Matches `windows-latest` runner                    |
-| Server 2025        | ✅  | —   | Matches `windows-2025` runner                      |
+| OS                 | x64 | x86 | ARM64 | Notes                                              |
+|--------------------|-----|-----|-------|----------------------------------------------------|
+| Windows 10 22H2    | ✅  | ⚠️  | —     | x86 coverage only via legacy images                |
+| Windows 11 23H2    | ✅  | —   | ⚠️    | ARM64 experimental runtime checks                    |
+| Windows 11 24H2    | ✅  | —   | ⚠️    | Latest consumer SKU; ARM64 experimental runtime      |
+| Server 2022        | ✅  | —   | —     | Matches `windows-latest` runner                    |
+| Server 2025        | ✅  | —   | —     | Matches `windows-2025` runner                      |
 
-Tick a row only after the full **Install**, **Runtime**, **Uninstall**
-sections below all pass on that OS/arch pair.
+Tick a runtime row only after the full **Install**, **Runtime**,
+**Uninstall** sections below all pass on that OS/arch pair. Do not mark
+ARM64 as production-supported until `termwrap` emits real ARM64
+patch-applied messages and concurrent-session smoke tests pass.
 
 ## 1. Install
 
@@ -66,7 +73,7 @@ Pass criteria:
       TCP/UDP 3389 allowed.
 - [ ] `sc query TermService` returns `STATE : 4 RUNNING`.
 
-## 2. Runtime — termwrap (x64 + x86)
+## 2. Runtime — termwrap (x64 + x86 + experimental ARM64)
 
 ```powershell
 # From a second machine:
@@ -78,6 +85,8 @@ Pass criteria:
       admin is already signed in locally (concurrent-session smoke test).
 - [ ] DebugView shows `TermWrap:` patch-applied messages, no
       `patch not found` warnings.
+- [ ] On ARM64, DebugView shows ARM64 DefPolicy, SingleUser, LocalOnly,
+      AppServer/NonRDP, PropertyDevice, and SL policy patch logs.
 - [ ] `rdprrap-check` (run on target) reports loopback RDP OK.
 - [ ] `rdprrap-conf` (run on target) shows green status for Wrapper,
       TermService, termsrv version, RDP-Tcp listener.
@@ -87,20 +96,32 @@ status in `rdprrap-conf` means the patcher failed to resolve an offset —
 run `offset-finder --assert-all C:\Windows\System32\termsrv.dll` and
 triage from its report.
 
+## ARM64 support state
+
+On ARM64 Windows, `termwrap`, `umwrap`, and `endpwrap` may emit ARM64
+patch-applied messages. `termwrap` should show DefPolicy, SingleUser,
+LocalOnly, AppServer/NonRDP, PropertyDevice, and SL policy ARM64 logs.
+The build remains experimental until those logs are paired with a real
+concurrent-session smoke test on Windows ARM64.
+
 ## 3. Runtime — umwrap (PnP redirection)
 
-Goal: prove the i686 path patched something real, not just compiled.
+Goal: prove the i686 and ARM64 device-redirection paths patched
+something real, not just compiled.
 
 - [ ] Redirect a USB storage device from the RDP client
       (`mstsc` → Local Resources → More → Drives).
 - [ ] Device appears in `This PC` inside the RDP session.
 - [ ] DebugView shows `UmWrap:` patch-applied messages, no
       `PnpRedirection patch not found`.
+- [ ] On ARM64, DebugView shows `UmWrap: ARM64 PnP patch applied`.
 
 Camera redirection (Win10+):
 - [ ] USB camera redirection passes through.
 - [ ] DebugView shows camera-secondary patch applied when
       `CameraRedirectionAllowed` string was present in `.rdata`.
+- [ ] On ARM64, DebugView shows `UmWrap: ARM64 Camera patch applied`
+      when that string was present in `.rdata`.
 
 ## 4. Runtime — endpwrap (audio capture)
 
@@ -108,6 +129,8 @@ Camera redirection (Win10+):
       Local Resources → Remote audio → Recording: Record from this
       computer) captures microphone audio into the remote session.
 - [ ] DebugView shows `EndpWrap:` patch-applied messages.
+- [ ] On ARM64, DebugView shows
+      `EndpWrap: ARM64 AllowAudioCapture patched`.
 
 ## 5. Installer preflights + negative cases
 
