@@ -14,7 +14,8 @@
 ### 추가됨
 - ARM64 Windows 빌드 scaffold: `aarch64-pc-windows-msvc` 가 워크스페이스
   전체에서 타입 체크되고, static CRT rustflags 와 CI 빌드/정적 산출물
-  체크 작업으로 보호됨.
+  체크 작업으로 보호됨. 릴리스 워크플로도 x64/x86 과 함께 ARM64 ZIP 을
+  패키징함.
 - `umwrap-dll` 과 `endpwrap-dll` 의 실험적 ARM64 런타임 패칭.
   `patcher::arm64` 가 ARM64 `.pdata` 함수 엔트리, ADR/ADRP+ADD 정책
   문자열 참조, 근처 BL 호출을 탐색함. `umwrap` 은 정책 BL 호출을

@@ -14,7 +14,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Added
 - ARM64 Windows build scaffold: `aarch64-pc-windows-msvc` now type-checks
   across the workspace, has static-CRT rustflags, and is covered by a
-  CI build/static-artifact job.
+  CI build/static-artifact job. The release workflow now packages ARM64 ZIPs
+  alongside x64 and x86.
 - Experimental ARM64 runtime patching for `umwrap-dll` and `endpwrap-dll`.
   `patcher::arm64` now scans ARM64 `.pdata` function entries, resolves
   ADR/ADRP+ADD policy-string references, and locates nearby BL calls.

@@ -1,7 +1,7 @@
 name: Release
 
 # Triggered when a version tag is pushed (e.g. `v0.1.0`). Cross-builds
-# Windows x64 and x86 release binaries, generates a third-party license
+# Windows x64, x86, and ARM64 release binaries, generates a third-party license
 # bundle for the shipped runtime dependencies, packages everything into
 # per-arch ZIPs, and publishes a GitHub release with the ZIPs attached.
 #
@@ -31,6 +31,8 @@ jobs:
             arch: x64
           - target: i686-pc-windows-msvc
             arch: x86
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
     steps:
       - uses: actions/checkout@v4
 
