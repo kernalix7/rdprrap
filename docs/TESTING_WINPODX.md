@@ -109,6 +109,10 @@ cd C:\rdprrap
 
 - [ ] Exit code 0.
 - [ ] No `NOT_FOUND` lines in the report.
+- [ ] The `[Patch Dry-Run]` block (`--assert-all` implies `--dry-run`)
+      shows a resolved `def_policy: base=... patch_rva=... bytes=[...]`
+      line, not `def_policy: NOT FOUND`. `property_device` is intentionally
+      skipped (`needs runtime walk — skipped`).
 
 If this fails, **stop**. Do not run the installer. Capture the full
 stdout (including the termsrv version reported by `Get-Item

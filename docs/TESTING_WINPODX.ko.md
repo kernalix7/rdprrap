@@ -110,6 +110,10 @@ cd C:\rdprrap
 
 - [ ] 종료 코드 0.
 - [ ] 리포트에 `NOT_FOUND` 라인이 없음.
+- [ ] `[Patch Dry-Run]` 블록(`--assert-all` 은 `--dry-run` 을 포함)에
+      resolve 된 `def_policy: base=... patch_rva=... bytes=[...]` 라인이
+      보이고 `def_policy: NOT FOUND` 가 아님. `property_device` 는
+      의도적으로 건너뜀(`needs runtime walk — skipped`).
 
 여기서 실패하면 **중단합니다**. 인스톨러를 돌리지 마세요. 전체
 stdout 과 termsrv 버전 (`Get-Item

@@ -2,6 +2,8 @@ use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic};
 use patcher::patch::{bytecodes, debug_log, write_patch};
 use patcher::pe::LoadedPe;
 
+use super::util::read_image_bytes;
+
 /// Apply LocalOnlyPatch — prevents license type local-only restriction.
 ///
 /// Scans CEnforcementCore::GetInstanceOfTSLicense for a call to
@@ -14,7 +16,26 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize, target_rva: usize) {
     let base = pe.adjusted_base;
     let ip_start = base + func_rva;
     let target_abs = (base + target_rva) as u64;
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, 256) };
+
+    // In-memory extent of the loaded termsrv.dll image. `ip_start` is a function
+    // start resolved from `func_rva`, and `cmp_location` below is a decoded
+    // JS/JNS `near_branch_target()`/`next_ip()`; on a layout-shifted or
+    // mis-decoded build either can resolve outside the mapping, and an unbounded
+    // read there can fault and crash the Terminal Services svchost. Both raw
+    // reads are bounded against this `[img_lo, img_hi)` span via
+    // `read_image_bytes` (BF-3 / SEC-UNSAFE-001).
+    let (img_lo, img_hi) = pe.image_extent();
+
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies in
+    // `[img_lo, img_hi)` and clamps the read length to the bytes mapped after it;
+    // an out-of-image function start degrades to "patch not found".
+    let code = match read_image_bytes("LocalOnlyPatch", ip_start, 256, img_lo, img_hi) {
+        Some(c) => c,
+        None => {
+            debug_log("LocalOnlyPatch function start outside image\n");
+            return;
+        }
+    };
     let mut decoder = Decoder::with_ip(arch_bits(), code, ip_start as u64, DecoderOptions::NONE);
     let mut inst = Instruction::default();
 
@@ -61,9 +82,18 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize, target_rva: usize) {
             (inst.next_ip(), inst.near_branch_target())
         };
 
-        // At cmp_location: expect CMP
+        // At cmp_location: expect CMP. `cmp_location` is a decoded branch
+        // target / fall-through IP; bound the read to the loaded image so a
+        // mis-decoded/out-of-image value cannot fault the svchost. An
+        // out-of-image location degrades to "patch not found".
         let cmp_code =
-            unsafe { std::slice::from_raw_parts(cmp_location as usize as *const u8, 30) };
+            match read_image_bytes("LocalOnlyPatch", cmp_location as usize, 30, img_lo, img_hi) {
+                Some(c) => c,
+                None => {
+                    debug_log("LocalOnlyPatch cmp_location outside image\n");
+                    break;
+                }
+            };
         let mut cmp_decoder =
             Decoder::with_ip(arch_bits(), cmp_code, cmp_location, DecoderOptions::NONE);
         let mut cmp_inst = Instruction::default();

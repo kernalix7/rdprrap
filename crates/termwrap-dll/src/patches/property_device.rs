@@ -1,6 +1,13 @@
-use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
+use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind};
+use patcher::analyze::property_device::{analyze_property_device, ALT_TARGET_SCAN_LEN, SCAN_LEN};
+// `Register` is only referenced by the x64 branch of `find_property_device_addr`
+// (RIP/DS-relative resolution); the x86 branch matches an absolute immediate.
+#[cfg(target_arch = "x86_64")]
+use iced_x86::Register;
 use patcher::patch::{debug_log, write_patch};
 use patcher::pe::LoadedPe;
+
+use super::util::read_image_bytes;
 
 /// GUID for IS_PNP_DISABLED: {93D359D5-831F-47B4-90BE-8383AF8F1B0E}
 pub const IS_PNP_DISABLED: [u8; 16] = [
@@ -20,7 +27,16 @@ pub unsafe fn find_property_device_addr(
     let base = pe.adjusted_base;
     let ip_start = base + func_rva;
     let target_abs = (base + pnp_disabled_rva) as u64;
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, 256) };
+
+    // In-memory extent of the loaded image, as absolute addresses. Every raw
+    // read below (the 256-byte function start and the followed-branch targets)
+    // is bounded against this span so a mis-decoded address cannot read outside
+    // the mapping (SEC-UNSAFE-001 / SEC-PATCH-004 / BF-3).
+    let (img_lo, img_hi) = pe.image_extent();
+
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies in
+    // `[img_lo, img_hi)` and clamps the length to the bytes mapped after it.
+    let code = read_image_bytes("PropertyDevice", ip_start, 256, img_lo, img_hi)?;
 
     let bits = if cfg!(target_arch = "x86_64") { 64 } else { 32 };
     let mut decoder = Decoder::with_ip(bits, code, ip_start as u64, DecoderOptions::NONE);
@@ -57,8 +73,11 @@ pub unsafe fn find_property_device_addr(
                         if inst.mnemonic() == Mnemonic::Je || inst.mnemonic() == Mnemonic::Jmp {
                             // Jump to target
                             let new_ip = inst.near_branch_target() as usize;
+                            // SAFETY: bounded by `read_image_bytes`, which
+                            // validates `new_ip` lies within the loaded image
+                            // and clamps the read length to the mapped bytes.
                             let remaining =
-                                unsafe { std::slice::from_raw_parts(new_ip as *const u8, 64) };
+                                read_image_bytes("PropertyDevice", new_ip, 64, img_lo, img_hi)?;
                             let mut inner = Decoder::with_ip(
                                 64,
                                 remaining,
@@ -109,8 +128,11 @@ pub unsafe fn find_property_device_addr(
                         if !found_jnz && inst.mnemonic() == Mnemonic::Jne {
                             // Follow JNZ
                             let new_ip = inst.near_branch_target() as usize;
+                            // SAFETY: bounded by `read_image_bytes`, which
+                            // validates `new_ip` lies within the loaded image
+                            // and clamps the read length to the mapped bytes.
                             let remaining =
-                                unsafe { std::slice::from_raw_parts(new_ip as *const u8, 64) };
+                                read_image_bytes("PropertyDevice", new_ip, 64, img_lo, img_hi)?;
                             decoder = Decoder::with_ip(
                                 64,
                                 remaining,
@@ -143,8 +165,11 @@ pub unsafe fn find_property_device_addr(
                     decoder.decode_out(&mut inst);
                     if !found_jnz && inst.mnemonic() == Mnemonic::Jne {
                         let new_ip = inst.near_branch_target() as usize;
+                        // SAFETY: bounded by `read_image_bytes`, which validates
+                        // `new_ip` lies within the loaded image and clamps the
+                        // read length to the mapped bytes.
                         let remaining =
-                            unsafe { std::slice::from_raw_parts(new_ip as *const u8, 64) };
+                            read_image_bytes("PropertyDevice", new_ip, 64, img_lo, img_hi)?;
                         decoder =
                             Decoder::with_ip(32, remaining, new_ip as u64, DecoderOptions::NONE);
                         found_jnz = true;
@@ -166,162 +191,94 @@ pub unsafe fn find_property_device_addr(
 
 /// Apply PropertyDevicePatch — patches the PnP device property check.
 ///
-/// Finds `shr reg, 0x0b` + `and reg, 1` pattern and replaces with
-/// `mov reg, 0; nop` to disable PnP filtering.
+/// The patch site is found structurally by the pure `analyze_property_device`
+/// core: a 32-bit struct-member load whose result is bit-extracted by
+/// `SHR reg, 0x0b` + `AND reg, 1` (primary form), or whose `Jcc` target is
+/// `SHR reg, 0x0c` + `AND reg, 7` (alternate form). The originating `MOV`'s
+/// displacement is captured dynamically (it shifts between Windows builds), so
+/// this survives struct-layout changes that broke the previous hardcoded
+/// `0x1f00` / `0x1f28` scan. The forced register value is emitted via the
+/// parametric `patcher::encode::mov_reg_imm32`, replacing the old per-register
+/// opcode table.
 ///
 /// # Safety
 /// All threads must be suspended
 pub unsafe fn apply(pe: &LoadedPe, func_rva: usize) {
     let base = pe.adjusted_base;
     let ip_start = base + func_rva;
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, 256) };
 
-    let bits = if cfg!(target_arch = "x86_64") { 64 } else { 32 };
-    let mut decoder = Decoder::with_ip(bits, code, ip_start as u64, DecoderOptions::NONE);
-    let mut inst = Instruction::default();
+    // In-memory extent of the loaded termsrv.dll image, as absolute addresses.
+    // Both the SCAN_LEN function-start read and the alternate-form `Jcc` target
+    // read are bounded against this `[img_lo, img_hi)` span; on a layout-shifted
+    // or mis-decoded build a decoded address can point outside the mapping, so
+    // the reads are bounded rather than trusting the decoded value
+    // (BF-1 / SEC-UNSAFE-002).
+    let (img_lo, img_hi) = pe.image_extent();
 
-    while decoder.can_decode() {
-        decoder.decode_out(&mut inst);
-
-        // Look for MOV reg, [mem+0x1f00] or [mem+0x1f28]
-        if inst.mnemonic() == Mnemonic::Mov
-            && inst.op0_kind() == OpKind::Register
-            && inst.op0_register().size() == 4  // 32-bit register
-            && inst.op1_kind() == OpKind::Memory
-            && inst.memory_base() != Register::RIP
-            && (inst.memory_displacement64() == 0x1f00
-                || inst.memory_displacement64() == 0x1f28)
-        {
-            let reg = inst.op0_register();
-
-            // Search for SHR reg, 0x0b
-            while decoder.can_decode() {
-                let shr_ip = decoder.ip() as usize;
-                decoder.decode_out(&mut inst);
-
-                if inst.mnemonic() == Mnemonic::Shr
-                    && inst.op0_kind() == OpKind::Register
-                    && inst.op0_register() == reg
-                    && inst.op1_kind() == OpKind::Immediate8
-                    && inst.immediate8() == 0x0b
-                {
-                    // Next should be AND reg, 1
-                    if !decoder.can_decode() {
-                        break;
-                    }
-                    let _and_ip = decoder.ip() as usize;
-                    decoder.decode_out(&mut inst);
-
-                    if inst.mnemonic() != Mnemonic::And
-                        || inst.op0_kind() != OpKind::Register
-                        || inst.op0_register() != reg
-                        || inst.len() > 3
-                    {
-                        break;
-                    }
-
-                    let and_len = inst.len();
-                    let total_len = 3 + and_len; // shr(3) + and
-
-                    // Check registry: if PnP redirection is explicitly disabled, skip
-                    if read_setting("fDisablePNPRedir", 0) == 1 {
-                        return;
-                    }
-
-                    // Build patch: mov reg, 0 + nop padding
-                    let mov_opcode = match reg {
-                        Register::EAX => 0xB8u8,
-                        Register::ECX => 0xB9,
-                        Register::EDX => 0xBA,
-                        Register::EBX => 0xBB,
-                        Register::ESI => 0xBE,
-                        Register::EDI => 0xBF,
-                        _ => {
-                            debug_log("PropertyPatch: unknown register\n");
-                            return;
-                        }
-                    };
-
-                    let mut patch = vec![mov_opcode, 0x00, 0x00, 0x00, 0x00];
-                    while patch.len() < total_len {
-                        patch.push(0x90);
-                    }
-
-                    if let Err(e) = unsafe { write_patch(shr_ip, &patch) } {
-                        debug_log(&format!("PropertyPatch write failed: {e}\n"));
-                    }
-                    return;
-                }
-
-                // Also check for JNZ/JZ → SHR reg, 0x0c pattern (alternate)
-                if (inst.mnemonic() == Mnemonic::Jne || inst.mnemonic() == Mnemonic::Je)
-                    && patcher::disasm::is_near_branch(&inst)
-                {
-                    let target = inst.near_branch_target() as usize;
-                    let target_code =
-                        unsafe { std::slice::from_raw_parts(target as *const u8, 15) };
-                    let mut target_decoder =
-                        Decoder::with_ip(bits, target_code, target as u64, DecoderOptions::NONE);
-                    let mut target_inst = Instruction::default();
-
-                    if target_decoder.can_decode() {
-                        target_decoder.decode_out(&mut target_inst);
-
-                        if target_inst.mnemonic() == Mnemonic::Shr
-                            && target_inst.op0_kind() == OpKind::Register
-                            && target_inst.op0_register() == reg
-                            && target_inst.op1_kind() == OpKind::Immediate8
-                            && target_inst.immediate8() == 0x0c
-                        {
-                            // Check for AND after SHR
-                            if target_decoder.can_decode() {
-                                target_decoder.decode_out(&mut target_inst);
-
-                                if target_inst.mnemonic() == Mnemonic::And
-                                    && target_inst.op0_kind() == OpKind::Register
-                                    && target_inst.op0_register() == reg
-                                    && target_inst.op1_kind() == OpKind::Immediate8
-                                    && target_inst.immediate8() == 7
-                                {
-                                    let and_len = target_inst.len();
-                                    let total_len = 3 + and_len;
-
-                                    // UseUniversalPrinterDriverFirst: default 3, registry can set to 4
-                                    let driver_val =
-                                        read_setting("UseUniversalPrinterDriverFirst", 3) as u8;
-                                    let mov_opcode = match reg {
-                                        Register::EAX => 0xB8u8,
-                                        Register::ECX => 0xB9,
-                                        Register::ESI => 0xBE,
-                                        _ => {
-                                            debug_log("PropertyPatch: unknown register\n");
-                                            return;
-                                        }
-                                    };
-
-                                    let mut patch = vec![mov_opcode, driver_val, 0x00, 0x00, 0x00];
-                                    while patch.len() < total_len {
-                                        patch.push(0x90);
-                                    }
-
-                                    if let Err(e) = unsafe { write_patch(target, &patch) } {
-                                        debug_log(&format!("PropertyPatch write failed: {e}\n"));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if inst.mnemonic() == Mnemonic::Ret || inst.mnemonic() == Mnemonic::Jmp {
-                    break;
-                }
-            }
-            break;
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies in
+    // `[img_lo, img_hi)` and clamps the read length to the bytes mapped after
+    // it; an out-of-image function RVA degrades to "patch not found".
+    let code = match read_image_bytes("PropertyPatch", ip_start, SCAN_LEN, img_lo, img_hi) {
+        Some(c) => c,
+        None => {
+            debug_log("PropertyPatch function start outside image\n");
+            return;
         }
-    }
+    };
 
-    debug_log("PropertyPatch not found\n");
+    // Primary form forces the PnP flag register to 0 (PnP not disabled). When
+    // PnP redirection is explicitly disabled in the registry the primary store
+    // is left intact, but the alternate UseUniversalPrinterDriverFirst form
+    // (default 3, registry can raise to 4) is still applied.
+    let primary_value = 0u32;
+    let alt_value = read_setting("UseUniversalPrinterDriverFirst", 3);
+    let patch_primary = read_setting("fDisablePNPRedir", 0) != 1;
+
+    // Reader for the alternate-form `Jcc` target: hand the core up to
+    // ALT_TARGET_SCAN_LEN bytes at the absolute jump destination. Returning
+    // `None` is treated by `analyze_property_device` as "no alternate site", so
+    // an out-of-image target degrades safely to "primary form only".
+    let alt_reader = |target: u64| -> Option<Vec<u8>> {
+        let target = target as usize;
+        // Reject targets outside the loaded image: a mis-decoded branch could
+        // resolve anywhere, and an unbounded read there can fault outside the
+        // mapping and crash the Terminal Services svchost.
+        if target < img_lo || target >= img_hi {
+            return None;
+        }
+        // Clamp the read window to the bytes actually mapped after `target`, so a
+        // target near the end of the image cannot read past the mapping.
+        let avail = img_hi.saturating_sub(target);
+        if avail == 0 {
+            return None;
+        }
+        let n = avail.min(ALT_TARGET_SCAN_LEN);
+        // SAFETY: `target` has been confirmed to lie within `[img_lo, img_hi)`
+        // (the loaded termsrv.dll image extent from `pe.image_extent()`), and
+        // `n` is clamped to `img_hi - target`, so the `n` bytes read here are
+        // entirely within the mapped image.
+        let bytes = unsafe { std::slice::from_raw_parts(target as *const u8, n) };
+        Some(bytes.to_vec())
+    };
+
+    match analyze_property_device(
+        code,
+        ip_start as u64,
+        primary_value,
+        alt_value,
+        patch_primary,
+        alt_reader,
+    ) {
+        Some(patch) => {
+            // SAFETY: `patch.patch_addr` lies within the disassembled function
+            // body (primary form) or at a near-branch target inside the same
+            // loaded image (alternate form); threads are suspended by the caller.
+            if let Err(e) = unsafe { write_patch(patch.patch_addr as usize, &patch.bytes) } {
+                debug_log(&format!("PropertyPatch write failed: {e}\n"));
+            }
+        }
+        None => debug_log("PropertyPatch not found\n"),
+    }
 }
 
 /// Read a DWORD registry setting value.

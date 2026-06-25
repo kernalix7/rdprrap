@@ -182,6 +182,14 @@ offset-finder --assert-all C:\Windows\System32\termsrv.dll
 - [ ] Exit code 0.
 - [ ] All named strings resolve (no `NOT_FOUND`).
 - [ ] All named functions resolve via xref (no `NOT_FOUND`).
+- [ ] Run with `--dry-run` (or rely on `--assert-all`, which implies it)
+      and confirm the `[Patch Dry-Run]` block shows a resolved DefPolicy
+      line, e.g.
+      `def_policy: base=... value=... write_disp=... is_jnz=... patch_rva=... bytes=[...]`
+      — **not** `def_policy: NOT FOUND`.
+- [ ] `property_device` dry-run is intentionally skipped (it needs the
+      runtime GUID-walk), so a `property_device dry-run: needs runtime
+      walk — skipped` line is expected, not a failure.
 
 If the above fails on a supported OS, open a patcher-team ticket with
 the full stdout and the termsrv.dll version (`(Get-Item termsrv.dll).VersionInfo`).

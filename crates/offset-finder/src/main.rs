@@ -14,6 +14,7 @@ const IMAGE_FILE_MACHINE_ARM64X: u16 = 0xa64e;
 struct Args {
     dll_path: Option<String>,
     assert_all: bool,
+    dry_run: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -21,14 +22,18 @@ fn parse_args() -> Result<Args> {
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "--assert-all" | "-a" => out.assert_all = true,
+            "--dry-run" | "-d" => out.dry_run = true,
             "--help" | "-h" => {
                 println!(
                     "offset-finder — scan termsrv.dll for rdprrap patch targets\n\
                      \n\
-                     USAGE:\n    offset-finder [--assert-all] [<path-to-termsrv.dll>]\n\
+                     USAGE:\n    offset-finder [--assert-all] [--dry-run] [<path-to-termsrv.dll>]\n\
                      \n\
                      FLAGS:\n\
                      \t-a, --assert-all   Exit non-zero if any required pattern is missing\n\
+                     \t-d, --dry-run      For each patch, report the site found and the bytes\n\
+                     \t                   that would be written (or NOT FOUND). Implied by\n\
+                     \t                   --assert-all.\n\
                      \t-h, --help         Print this message\n\
                      \n\
                      When <path> is omitted on Windows, %SystemRoot%\\System32\\termsrv.dll is used."
@@ -38,6 +43,10 @@ fn parse_args() -> Result<Args> {
             s if !s.starts_with('-') && out.dll_path.is_none() => out.dll_path = Some(arg),
             _ => bail!("Unknown or duplicate argument: {arg}"),
         }
+    }
+    // --assert-all checks the patch sites too, so it implies the dry-run.
+    if out.assert_all {
+        out.dry_run = true;
     }
     Ok(out)
 }
@@ -71,11 +80,11 @@ fn main() -> Result<()> {
     }
 
     eprintln!("Loading: {}", dll_path.display());
-    find_offsets_file(&dll_path, args.assert_all)
+    find_offsets_file(&dll_path, args.assert_all, args.dry_run)
 }
 
 /// Load termsrv.dll as a file and parse PE to find offsets
-fn find_offsets_file(path: &std::path::Path, assert_all: bool) -> Result<()> {
+fn find_offsets_file(path: &std::path::Path, assert_all: bool, dry_run: bool) -> Result<()> {
     use pelite::pe32::Pe as Pe32;
     use pelite::pe64::Pe as Pe64;
 
@@ -88,7 +97,7 @@ fn find_offsets_file(path: &std::path::Path, assert_all: bool) -> Result<()> {
         match machine {
             IMAGE_FILE_MACHINE_AMD64 => {
                 eprintln!("Architecture: x64");
-                find_offsets_pe64(&pe64, assert_all)
+                find_offsets_pe64(&pe64, assert_all, dry_run)
             }
             IMAGE_FILE_MACHINE_ARM64 | IMAGE_FILE_MACHINE_ARM64EC | IMAGE_FILE_MACHINE_ARM64X => {
                 if machine == IMAGE_FILE_MACHINE_ARM64 {
@@ -144,8 +153,9 @@ fn machine_name(machine: u16) -> &'static str {
     }
 }
 
-fn find_offsets_pe64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<()> {
+fn find_offsets_pe64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool, dry_run: bool) -> Result<()> {
     use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
+    use patcher::pe::{resolve_chained_unwind, RuntimeFunction};
     use pelite::pe64::Pe;
 
     let image_base = pe.optional_header().ImageBase;
@@ -217,6 +227,10 @@ fn find_offsets_pe64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<
 
     // Find function addresses via exception table xref.
     let mut func_found: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    // Records the owning function range (begin RVA, end RVA) for each resolved
+    // name so the patch-site dry-run can re-slice and analyze the body afterward.
+    let mut func_ranges: std::collections::HashMap<&str, (usize, usize)> =
+        std::collections::HashMap::new();
     if let Ok(exception_dir) = pe.exception() {
         println!();
         for entry in exception_dir.functions() {
@@ -250,17 +264,121 @@ fn find_offsets_pe64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<
                     for (name, str_rva_opt) in &str_rvas {
                         if let Some(str_rva) = str_rva_opt {
                             if target == *str_rva as u64 {
+                                // The string xref lands in whatever RUNTIME_FUNCTION
+                                // contains the LEA. With PGO hot/cold splitting that
+                                // may be a COLD outlined fragment (e.g. the deny path
+                                // of CDefPolicy::Query on Server 2022 20348.587) whose
+                                // UNWIND_INFO chains back to the HOT function holding
+                                // the actual gate. Resolve through the chain so we
+                                // report — and later slice/analyze — the hot body.
+                                // No-op when the entry is not chained (deny path
+                                // inlined into the hot function, as on 26100/26200).
+                                let cold = RuntimeFunction {
+                                    begin_address: image.BeginAddress,
+                                    end_address: image.EndAddress,
+                                    unwind_data: image.UnwindData,
+                                };
+                                // SEC-CU-03: self-validate the resolved primary
+                                // against the `.text` RVA window so a bogus/
+                                // malformed chain hands back the original cold
+                                // entry instead of a garbage hot address.
+                                let text_window =
+                                    (text_va, text_va.saturating_add(text_data.len() as u32));
+                                let primary = resolve_chained_unwind(
+                                    cold,
+                                    |rva| pe.slice_bytes(rva).ok().and_then(|s| s.first().copied()),
+                                    Some(text_window),
+                                );
+                                let (hot_begin, hot_end) =
+                                    (primary.begin_address as usize, primary.end_address as usize);
+                                // SEC-DISC-003: re-apply the pre-chain validity
+                                // guard (begin in .text / end > begin / fits in
+                                // section bytes) to the POST-chain primary before
+                                // recording it. The cold entry already passed at
+                                // the table loop above, but the chained primary is
+                                // a fresh address that must clear the same bar.
+                                let hot_in_text = hot_begin >= text_va as usize
+                                    && hot_end > hot_begin
+                                    && hot_end - text_va as usize <= text_data.len();
+                                if !hot_in_text {
+                                    continue;
+                                }
                                 println!(
-                                    "{name}_func=0x{begin:X} (xref at 0x{:X})",
+                                    "{name}_func=0x{hot_begin:X} (xref at 0x{:X})",
                                     inst.ip() - image_base
                                 );
                                 func_found.insert(name);
+                                func_ranges.entry(name).or_insert((hot_begin, hot_end));
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    // --- Patch-site dry-run -------------------------------------------------
+    // For each patch, slice the resolved function body out of .text and run the
+    // pure patcher analyzer, reporting the site found and the bytes that would
+    // be written (or NOT FOUND). This is purely informational and never changes
+    // the offset report above; --assert-all incorporates it (see below).
+    let mut dry_run_failed: Vec<&str> = Vec::new();
+    if dry_run {
+        println!();
+        println!("[Patch Dry-Run]");
+
+        // def_policy: analyze CDefPolicy::Query for the compare/store site.
+        match func_ranges.get("CDefPolicy_Query") {
+            Some(&(begin, end)) => {
+                // SEC-DISC-003: `saturating_sub` throughout so a malformed input
+                // DLL (begin < text_va, end < begin, or func_off past the
+                // section) can never underflow-panic this diagnostic path.
+                let func_off = begin.saturating_sub(text_va as usize);
+                // Bound the analyzer window to SCAN_LEN, but never past the
+                // resolved function end or the section data.
+                let avail = end
+                    .saturating_sub(begin)
+                    .min(patcher::analyze::def_policy::SCAN_LEN)
+                    .min(text_data.len().saturating_sub(func_off));
+                let code = &text_data[func_off..func_off + avail];
+                match patcher::analyze::def_policy::analyze_defpolicy(
+                    code,
+                    image_base + begin as u64,
+                ) {
+                    Some(p) => {
+                        let bytes_hex = hex_join(&p.bytes);
+                        println!(
+                            "def_policy: base={:?} value={:?} write_disp=0x{:X} is_jnz={} \
+                             patch_rva=0x{:X} bytes=[{}]",
+                            p.base_reg,
+                            p.value_reg,
+                            p.write_disp,
+                            p.is_jnz,
+                            p.patch_addr - image_base,
+                            bytes_hex,
+                        );
+                    }
+                    None => {
+                        println!("def_policy: NOT FOUND");
+                        dry_run_failed.push("def_policy");
+                    }
+                }
+            }
+            None => {
+                println!("def_policy: NOT FOUND (CDefPolicy::Query function unresolved)");
+                dry_run_failed.push("def_policy");
+            }
+        }
+
+        // property_device: the patch site is reached by a runtime GUID-walk
+        // (GetConnectionProperty -> IS_PNP_DISABLED xref -> CALL into the inner
+        // function), which resolves RIP-relative targets against the live image
+        // and hops across functions. That walk lives in the wrapper crate and
+        // reads process memory; porting it to file bytes would be a large,
+        // fragile addition for little dry-run value, so it is honestly skipped
+        // here. The pure `patcher::analyze::property_device` core is still
+        // available for callers that already hold the inner function bytes.
+        println!("property_device dry-run: needs runtime walk — skipped");
     }
 
     if assert_all {
@@ -282,18 +400,30 @@ fn find_offsets_pe64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<
             patterns.len()
         );
 
-        if !missing_strings.is_empty() || !missing_funcs.is_empty() {
+        if !missing_strings.is_empty() || !missing_funcs.is_empty() || !dry_run_failed.is_empty() {
             if !missing_strings.is_empty() {
                 eprintln!("[Assert] MISSING strings: {missing_strings:?}");
             }
             if !missing_funcs.is_empty() {
                 eprintln!("[Assert] MISSING function xrefs: {missing_funcs:?}");
             }
+            if !dry_run_failed.is_empty() {
+                eprintln!("[Assert] MISSING patch sites: {dry_run_failed:?}");
+            }
             bail!("--assert-all: required patterns not all resolved");
         }
     }
 
     Ok(())
+}
+
+/// Format bytes as space-separated two-digit uppercase hex (e.g. "B8 00 01").
+fn hex_join(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn find_offsets_pe64_arm64(pe: &pelite::pe64::PeFile<'_>, assert_all: bool) -> Result<()> {

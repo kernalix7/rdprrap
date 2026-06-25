@@ -14,6 +14,22 @@ const ALLOW_AUDIO_CAPTURE_BYTES: &[u8] =
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 const MOV_EAX_1_RET: &[u8] = &[0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3];
 
+/// Clamp a read length so `[addr, addr + len)` stays within the loaded image
+/// extent `[img_lo, img_hi)`.
+///
+/// Returns 0 when `addr` is outside the image, otherwise the smaller of `len`
+/// and the bytes mapped after `addr`. This bounds the exception-table-driven
+/// function-body reads on x64 so a malformed RUNTIME_FUNCTION (length running
+/// off the mapping, or a function near the end of the image) cannot read past
+/// the mapping and fault the svchost (SEC-CU-01).
+#[cfg(target_arch = "x86_64")]
+fn clamp_read_len(addr: usize, len: usize, img_lo: usize, img_hi: usize) -> usize {
+    if addr < img_lo || addr >= img_hi {
+        return 0;
+    }
+    len.min(img_hi.saturating_sub(addr))
+}
+
 /// Apply rdpendp.dll patches for audio recording redirection.
 ///
 /// # Safety
@@ -106,17 +122,34 @@ mod x64 {
         };
 
         let adjusted = pe.adjusted_base;
+        // In-memory extent of the loaded rdpendp.dll image. A RUNTIME_FUNCTION's
+        // begin/length comes from the exception table and is normally inside
+        // `.text`, but a malformed entry can report end < begin or a length
+        // that runs off the mapping; the read below is clamped to this span so
+        // an unbounded read cannot fault and crash the svchost (SEC-CU-01).
+        let (img_lo, img_hi) = pe.image_extent();
 
         for func in &func_table {
             let begin = func.begin_address as usize;
-            let length = (func.end_address - func.begin_address) as usize;
+            // `saturating_sub`: a malformed exception entry could report
+            // end < begin; clamp to 0 rather than wrapping (debug panic /
+            // release OOB length).
+            let length = func.end_address.saturating_sub(func.begin_address) as usize;
             if length == 0 {
                 continue;
             }
 
-            // SAFETY: begin/length describe a function mapped inside the loaded PE.
-            let code =
-                unsafe { std::slice::from_raw_parts((adjusted + begin) as *const u8, length) };
+            let func_start = adjusted + begin;
+            // Clamp the read window to the bytes mapped after `func_start`.
+            let length = super::clamp_read_len(func_start, length, img_lo, img_hi);
+            if length == 0 {
+                continue;
+            }
+
+            // SAFETY: `func_start` is `adjusted_base + begin` for an exception
+            // table entry, and `length` is clamped to the bytes mapped after it
+            // within `[img_lo, img_hi)`, so the read stays inside the image.
+            let code = unsafe { std::slice::from_raw_parts(func_start as *const u8, length) };
             let mut decoder =
                 Decoder::with_ip(64, code, (adjusted + begin) as u64, DecoderOptions::NONE);
             let mut inst = Instruction::default();
@@ -132,7 +165,7 @@ mod x64 {
                 {
                     let lea_target = inst.memory_displacement64();
                     if lea_target == (adjusted + audio_capture_rva) as u64 {
-                        let bt = pe.backtrace_function(func);
+                        let bt = pe.resolve_chained_unwind_in_image(func);
                         let func_addr = adjusted + bt.begin_address as usize;
                         // SAFETY: func_addr inside loaded PE; threads suspended.
                         if let Err(e) = unsafe { write_patch(func_addr, MOV_EAX_1_RET) } {

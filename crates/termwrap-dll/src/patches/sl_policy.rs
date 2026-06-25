@@ -2,6 +2,8 @@ use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register}
 use patcher::patch::{debug_log, write_patch};
 use patcher::pe::LoadedPe;
 
+use super::util::read_image_bytes;
+
 /// Apply CSLQuery::Initialize SL policy variable patching.
 ///
 /// Scans CSLQuery::Initialize and sets the following static variables to 1:
@@ -31,6 +33,18 @@ pub unsafe fn apply(
     let ip_start = base + cslquery_init_rva;
     let length = cslquery_init_len;
 
+    // In-memory extent of the loaded termsrv.dll image. `ip_start` is a function
+    // start resolved from `cslquery_init_rva`, and the short-function path below
+    // follows a decoded JMP `near_branch_target()`; on a layout-shifted or
+    // mis-decoded build either can resolve outside the mapping, and an unbounded
+    // read there can fault and crash the Terminal Services svchost. Every raw
+    // read in this function is bounded against this `[img_lo, img_hi)` span via
+    // `read_image_bytes`, which also clamps the length to the bytes mapped after
+    // the address — so a valid in-image short-function JMP target still resolves
+    // the full `0x11000` follow-through (or `img_hi - target`, the full mapped
+    // remainder) (BF-1 / SEC-UNSAFE-001).
+    let (img_lo, img_hi) = pe.image_extent();
+
     let policy_rvas: Vec<usize> = [
         allow_remote_rva,
         allow_multiple_rva,
@@ -41,7 +55,16 @@ pub unsafe fn apply(
     .filter_map(|r| *r)
     .collect();
 
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, length) };
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies in
+    // `[img_lo, img_hi)` and clamps the read length to the bytes mapped after it;
+    // an out-of-image function start degrades to "patch not found".
+    let code = match read_image_bytes("SLPolicy", ip_start, length, img_lo, img_hi) {
+        Some(c) => c,
+        None => {
+            debug_log("SLPolicy: function start outside image\n");
+            return;
+        }
+    };
 
     let mut b_initialized_addr: Option<usize> = None;
     let mut found = false;
@@ -102,8 +125,16 @@ pub unsafe fn apply(
         // Short function — different scanning pattern (inlined)
         // Use 0x11000 as scan range (not clamped to stub length) since the real
         // function body is at the JMP target, well within the loaded DLL image.
+        // `read_image_bytes` clamps only to the bytes mapped after the address,
+        // so a valid in-image read keeps the full `0x11000` follow-through.
         let scan_len = 0x11000usize;
-        let scan_code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, scan_len) };
+        let scan_code = match read_image_bytes("SLPolicy", ip_start, scan_len, img_lo, img_hi) {
+            Some(c) => c,
+            None => {
+                debug_log("SLPolicy: short-function start outside image\n");
+                return;
+            }
+        };
         let mut decoder = Decoder::with_ip(64, scan_code, ip_start as u64, DecoderOptions::NONE);
         let mut inst = Instruction::default();
 
@@ -113,8 +144,18 @@ pub unsafe fn apply(
             // Follow JMP
             if inst.mnemonic() == Mnemonic::Jmp && patcher::disasm::is_near_branch(&inst) {
                 let target = inst.near_branch_target() as usize;
+                // The JMP target is a decoded absolute address; bound the read to
+                // the loaded image so a mis-decoded/out-of-image target cannot
+                // fault the svchost. A valid in-image target keeps the full
+                // `0x11000` (or `img_hi - target`) follow-through.
                 let remaining_code =
-                    unsafe { std::slice::from_raw_parts(target as *const u8, scan_len) };
+                    match read_image_bytes("SLPolicy", target, scan_len, img_lo, img_hi) {
+                        Some(c) => c,
+                        None => {
+                            debug_log("SLPolicy: JMP target outside image\n");
+                            return;
+                        }
+                    };
                 decoder = Decoder::with_ip(64, remaining_code, target as u64, DecoderOptions::NONE);
                 continue;
             }
@@ -194,6 +235,13 @@ pub unsafe fn apply(
     let ip_start = base + cslquery_init_rva;
     let length = cslquery_init_len;
 
+    // In-memory extent of the loaded termsrv.dll image. `ip_start` is a function
+    // start resolved from `cslquery_init_rva`; on a layout-shifted build it can
+    // resolve outside the mapping, and an unbounded read there can fault and
+    // crash the Terminal Services svchost. Bound the read against this span
+    // (SEC-UNSAFE-001).
+    let (img_lo, img_hi) = pe.image_extent();
+
     let policy_rvas: Vec<usize> = [
         allow_remote_rva,
         allow_multiple_rva,
@@ -204,7 +252,16 @@ pub unsafe fn apply(
     .filter_map(|r| *r)
     .collect();
 
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, length) };
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies in
+    // `[img_lo, img_hi)` and clamps the read length to the bytes mapped after it;
+    // an out-of-image function start degrades to "patch not found".
+    let code = match read_image_bytes("SLPolicy x86", ip_start, length, img_lo, img_hi) {
+        Some(c) => c,
+        None => {
+            debug_log("SLPolicy x86: function start outside image\n");
+            return;
+        }
+    };
     let mut decoder = Decoder::with_ip(32, code, ip_start as u64, DecoderOptions::NONE);
     let mut inst = Instruction::default();
 

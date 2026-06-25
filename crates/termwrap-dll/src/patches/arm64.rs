@@ -149,7 +149,10 @@ fn patch_function_start(
     patch: &[u8],
     label: &str,
 ) -> bool {
-    let len = (func.end_address - func.begin_address) as usize;
+    // `saturating_sub`: a malformed `.pdata` entry could report end < begin;
+    // clamp to 0 (then "too short") rather than wrapping (debug panic /
+    // release OOB length).
+    let len = func.end_address.saturating_sub(func.begin_address) as usize;
     if len < patch.len() {
         debug_log(&format!("TermWrap ARM64: {label} function too short\n"));
         return false;
@@ -174,13 +177,32 @@ fn patch_function_start(
 
 fn apply_def_policy(pe: &LoadedPe, func: arm64_pe::Arm64Function) {
     let begin = func.begin_address as usize;
-    let len = ((func.end_address - func.begin_address) as usize).min(256);
+    // `saturating_sub`: a malformed `.pdata` entry could report end < begin;
+    // clamp to 0 rather than wrapping (debug panic / release OOB length).
+    let len = (func.end_address.saturating_sub(func.begin_address) as usize).min(256);
     if len < 12 {
         debug_log("TermWrap ARM64: DefPolicy function too short\n");
         return;
     }
 
-    // SAFETY: function bounds come from `.pdata` and are clamped to `.text`.
+    // Clamp the read window to the bytes mapped after `begin` so a `.pdata`
+    // length that runs off the image cannot read past the mapping.
+    let func_start = pe.adjusted_base + begin;
+    let (img_lo, img_hi) = pe.image_extent();
+    let len = if func_start < img_lo || func_start >= img_hi {
+        debug_log("TermWrap ARM64: DefPolicy function start outside image\n");
+        return;
+    } else {
+        len.min(img_hi.saturating_sub(func_start))
+    };
+    if len < 12 {
+        debug_log("TermWrap ARM64: DefPolicy function too short after clamp\n");
+        return;
+    }
+
+    // SAFETY: `begin` is a `.pdata` function offset whose absolute start lies in
+    // `[img_lo, img_hi)`, and `len` is clamped to the bytes mapped after it, so
+    // the read stays inside the loaded image.
     let code = unsafe { pe.read_bytes(begin, len) };
     let words: Vec<u32> = code
         .chunks_exact(4)

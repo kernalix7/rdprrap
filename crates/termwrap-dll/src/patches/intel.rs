@@ -10,6 +10,8 @@ mod property_device;
 mod single_user;
 #[path = "sl_policy.rs"]
 mod sl_policy;
+#[path = "util.rs"]
+mod util;
 
 use patcher::patch::debug_log;
 use patcher::pattern::{find_pattern_in_section, termsrv_strings as strings};
@@ -201,9 +203,13 @@ pub unsafe fn apply_patches(hmod: HMODULE) {
                         if let Some(is_appserver_rva) = is_appserver_rva {
                             if search_xref_in_function(&pe, func, is_appserver_rva as u64).is_some()
                             {
-                                let bt = pe.backtrace_function(func);
+                                // The inlined IsAppServerInstalled search may match
+                                // a COLD outlined fragment; map it to the primary
+                                // (hot) function before patching. No-op when the
+                                // entry is not chained.
+                                let primary = pe.resolve_chained_unwind_in_image(func);
                                 if unsafe {
-                                    nonrdp::apply(&pe, nonrdp_addr, bt.begin_address as usize)
+                                    nonrdp::apply(&pe, nonrdp_addr, primary.begin_address as usize)
                                 } {
                                     found = true;
                                     break;
@@ -321,8 +327,16 @@ fn resolve_functions_x64(
                 if addrs.$field.is_none() {
                     if let Some(rva) = $rva {
                         if search_xref_in_function(pe, func, rva as u64).is_some() {
-                            let bt = pe.backtrace_function(func);
-                            addrs.$field = Some(bt.begin_address as usize);
+                            // The xref lands in whatever RUNTIME_FUNCTION contains
+                            // it. Under PGO hot/cold splitting that may be a COLD
+                            // outlined fragment whose UNWIND_INFO chains back to the
+                            // HOT function holding the gate (e.g. CDefPolicy::Query's
+                            // deny path on Server 2022 20348.587). Resolve the chain
+                            // to the primary (hot) function before recording its
+                            // begin. No-op when the entry is not chained (deny path
+                            // inlined into the hot function, as on 26100/26200).
+                            let primary = pe.resolve_chained_unwind_in_image(func);
+                            addrs.$field = Some(primary.begin_address as usize);
                             continue;
                         }
                     }
@@ -339,8 +353,10 @@ fn resolve_functions_x64(
         if addrs.is_allow_nonrdp.is_none() && is_allow_nonrdp_rva.is_some() {
             if let Some(rva) = is_allow_nonrdp_rva {
                 if search_xref_in_function(pe, func, rva as u64).is_some() {
+                    // Map a possibly-cold xref fragment to its primary (hot)
+                    // function (see try_resolve! above); no-op when not chained.
                     addrs.is_allow_nonrdp =
-                        Some(pe.backtrace_function(func).begin_address as usize);
+                        Some(pe.resolve_chained_unwind_in_image(func).begin_address as usize);
                     continue;
                 }
             }
@@ -349,7 +365,10 @@ fn resolve_functions_x64(
         if addrs.is_appserver.is_none() {
             if let Some(rva) = is_appserver_rva {
                 if search_xref_in_function(pe, func, rva as u64).is_some() {
-                    addrs.is_appserver = Some(pe.backtrace_function(func).begin_address as usize);
+                    // Map a possibly-cold xref fragment to its primary (hot)
+                    // function (see try_resolve! above); no-op when not chained.
+                    addrs.is_appserver =
+                        Some(pe.resolve_chained_unwind_in_image(func).begin_address as usize);
                     addrs.is_appserver_idx = i;
                     continue;
                 }
@@ -361,9 +380,16 @@ fn resolve_functions_x64(
         if addrs.cslquery_initialize.is_none() {
             if let Some(rva) = allow_remote_rva {
                 if search_xref_in_function(pe, func, rva as u64).is_some() {
-                    let bt = pe.backtrace_function(func);
-                    addrs.cslquery_initialize = Some(bt.begin_address as usize);
-                    addrs.cslquery_initialize_len = (bt.end_address - bt.begin_address) as usize;
+                    // Resolve a possibly-cold xref fragment to the primary (hot)
+                    // function so both the begin address and the length span the
+                    // hot body (see try_resolve! above); no-op when not chained.
+                    let primary = pe.resolve_chained_unwind_in_image(func);
+                    addrs.cslquery_initialize = Some(primary.begin_address as usize);
+                    // `saturating_sub`: a malformed/chained entry could in
+                    // principle report end < begin; clamp to 0 rather than
+                    // wrapping (debug panic / release OOB length).
+                    addrs.cslquery_initialize_len =
+                        primary.end_address.saturating_sub(primary.begin_address) as usize;
                     continue;
                 }
             }

@@ -1,4 +1,3 @@
-use crate::error::PatcherError;
 use crate::pe::{LoadedPe, RuntimeFunction};
 use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
 
@@ -65,23 +64,6 @@ pub fn search_xref_in_function(
     }
 
     None
-}
-
-/// Decode a single instruction at the given absolute pointer.
-///
-/// # Safety
-/// `ptr` must point to valid code memory with at least 15 bytes readable.
-pub unsafe fn decode_one(arch: Arch, ptr: usize) -> Result<Instruction, PatcherError> {
-    let code = std::slice::from_raw_parts(ptr as *const u8, 15);
-    let mut decoder = decode_at(arch, code, ptr as u64);
-    let mut instruction = Instruction::default();
-
-    if decoder.can_decode() {
-        decoder.decode_out(&mut instruction);
-        Ok(instruction)
-    } else {
-        Err(PatcherError::DisassemblyFailed(ptr as u64))
-    }
 }
 
 /// Helper to check if an instruction is a CALL to a given import thunk address.

@@ -2,6 +2,8 @@ use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register}
 use patcher::patch::{bytecodes, debug_log, nop_fill, write_patch};
 use patcher::pe::LoadedPe;
 
+use super::util::read_image_bytes;
+
 /// Apply SingleUserPatch — prevents single-session-per-user enforcement.
 ///
 /// Finds the call to memset within the function, then searches for either:
@@ -20,7 +22,26 @@ pub unsafe fn apply(
 ) -> bool {
     let base = pe.adjusted_base;
     let ip_start = base + func_rva;
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, 256) };
+
+    // In-memory extent of the loaded termsrv.dll image. `func_rva` is the begin
+    // address of a (possibly chained-unwind-resolved) RUNTIME_FUNCTION, and the
+    // memset JMP-thunk target below is a decoded near-branch; both can resolve
+    // outside the mapping on a layout-shifted build, and an unbounded read
+    // there can fault and crash the Terminal Services svchost. Every raw read
+    // is bounded against this span and degrades to "not found"
+    // (SEC-UNSAFE-001 / SEC-PATCH-004).
+    let (img_lo, img_hi) = pe.image_extent();
+
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies
+    // within `[img_lo, img_hi)` and clamps the read length to the bytes mapped
+    // after it; an out-of-image function start degrades to "not found".
+    let code = match read_image_bytes("SingleUserPatch", ip_start, 256, img_lo, img_hi) {
+        Some(c) => c,
+        None => {
+            debug_log("SingleUserPatch function start outside image\n");
+            return false;
+        }
+    };
     let mut decoder = Decoder::with_ip(arch_bits(), code, ip_start as u64, DecoderOptions::NONE);
     let mut inst = Instruction::default();
 
@@ -35,13 +56,19 @@ pub unsafe fn apply(
         }
 
         // Check if this CALL goes to memset via JMP thunk
-        if !is_call_to_memset(&inst, pe, memset_abs) {
+        if !is_call_to_memset(&inst, pe, memset_abs, img_lo, img_hi) {
             continue;
         }
 
-        // Found memset call — now search for VerifyVersionInfoW or CMP pattern
+        // Found memset call — now search for VerifyVersionInfoW or CMP pattern.
+        // `remaining_ip` is still inside the disassembled function body, but the
+        // read is bounded for uniformity and degrades to "not found".
         let remaining_ip = decoder.ip() as usize;
-        let remaining = unsafe { std::slice::from_raw_parts(remaining_ip as *const u8, 128) };
+        let remaining = match read_image_bytes("SingleUserPatch", remaining_ip, 128, img_lo, img_hi)
+        {
+            Some(r) => r,
+            None => return false,
+        };
         let mut inner = Decoder::with_ip(
             arch_bits(),
             remaining,
@@ -140,16 +167,30 @@ pub unsafe fn apply(
 
 /// Check if a CALL instruction targets memset via an import thunk.
 /// Follows the pattern: CALL → JMP [import_thunk] → memset
-fn is_call_to_memset(inst: &Instruction, _pe: &LoadedPe, memset_abs: u64) -> bool {
+///
+/// `img_lo`/`img_hi` are the loaded image extent (from `pe.image_extent()`);
+/// the JMP-thunk read at the decoded call target is bounded against them so a
+/// mis-decoded near-branch cannot read outside the mapping.
+fn is_call_to_memset(
+    inst: &Instruction,
+    _pe: &LoadedPe,
+    memset_abs: u64,
+    img_lo: usize,
+    img_hi: usize,
+) -> bool {
     if inst.mnemonic() != Mnemonic::Call || !patcher::disasm::is_near_branch(inst) {
         return false;
     }
 
     let jmp_addr = inst.near_branch_target() as usize;
 
-    // Read the JMP instruction at the call target
-    // SAFETY: jmp_addr is a branch target from decoded code within the loaded DLL
-    let jmp_code = unsafe { std::slice::from_raw_parts(jmp_addr as *const u8, 15) };
+    // Read the JMP instruction at the call target. The target is a decoded
+    // near-branch that can resolve outside the image on a mis-decoded build, so
+    // the read is bounded and a "not a memset thunk" result degrades to `false`.
+    let jmp_code = match read_image_bytes("SingleUserPatch", jmp_addr, 15, img_lo, img_hi) {
+        Some(c) => c,
+        None => return false,
+    };
     let mut jmp_decoder =
         Decoder::with_ip(arch_bits(), jmp_code, jmp_addr as u64, DecoderOptions::NONE);
     let mut jmp_inst = Instruction::default();

@@ -9,6 +9,41 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-25
+
+### Changed
+- Patch sites are now derived dynamically instead of hardcoded. The new
+  `patcher::analyze` module disassembles each target function and captures
+  struct displacements, register choices, and branch direction at runtime,
+  then emits patch bytes through a new hand-rolled `patcher::encode` x86/x64
+  instruction encoder (`mov reg, imm32`, `mov [base+disp32], reg`). This
+  removes build-dependent hardcoding (fixed struct offsets, register
+  enumerations, fixed byte templates) so DefPolicy and PropertyDevice
+  patches survive termsrv.dll struct-layout shifts across Windows builds.
+  Addresses the issue-#3 class (patches silently not applied after a
+  Windows build update); validated on 26200.8037, 26100.32230 (Server
+  2025), and 20348.587 (Server 2022).
+- Patch-site discovery now follows PGO hot/cold function splits. When a
+  target function's identifying string is referenced only from a cold
+  (outlined) fragment, the resolver follows the x64 chained unwind info
+  (`UNW_FLAG_CHAININFO`) to the primary (hot) function before locating the
+  patch site. Without this, DefPolicy resolved to a deny-path fragment and
+  was silently skipped on cold-split builds such as Server 2022 (20348).
+- `termwrap-dll` DefPolicy and PropertyDevice patch modules are now thin
+  unsafe wrappers over the pure `patcher::analyze` analyzers.
+
+### Added
+- `offset-finder --dry-run` (`-d`): for each patch, reports the captured
+  patch site and the exact bytes that would be written (or NOT FOUND),
+  as a self-diagnosis aid. `--assert-all` implies `--dry-run` and now
+  also fails when a patch site cannot be located.
+
+### Removed
+- `umwrap-dll` x64 legacy slc.dll path no longer writes a build-dependent
+  `or [rsp+0x40], 1` stack-slot template. The fragile hardcoded write was
+  replaced with a log-and-skip so it cannot corrupt an unrelated stack slot
+  on a mismatched build.
+
 ## [0.2.0] - 2026-05-13
 
 ### Added

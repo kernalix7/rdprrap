@@ -9,6 +9,38 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-25
+
+### 변경됨
+- 패치 위치를 하드코딩 대신 런타임에 동적으로 도출. 새 `patcher::analyze`
+  모듈이 대상 함수를 디스어셈블해 struct displacement, 레지스터 선택,
+  분기 방향을 런타임에 포착하고, 새 `patcher::encode` x86/x64 인코더
+  (`mov reg, imm32`, `mov [base+disp32], reg`)로 패치 바이트를 생성함.
+  고정 struct 오프셋 / 레지스터 열거 / 고정 바이트 템플릿 같은 빌드
+  의존 하드코딩을 제거해 DefPolicy 와 PropertyDevice 패치가 termsrv.dll
+  struct 레이아웃 변동을 견디도록 함. 이슈 #3 부류(Windows 빌드 업데이트
+  후 패치가 조용히 미적용)를 해결하며, 26200.8037 / 26100.32230(Server
+  2025) / 20348.587(Server 2022)에서 검증.
+- 패치 위치 탐색이 PGO hot/cold 함수 분리를 따라감. 대상 함수의 식별
+  문자열이 cold(분리된) 조각에서만 참조될 때, x64 chained unwind 정보
+  (`UNW_FLAG_CHAININFO`)를 따라 primary(hot) 함수로 이동한 뒤 패치 위치를
+  찾음. 이게 없으면 DefPolicy 가 deny 경로 조각으로 잡혀 Server 2022
+  (20348) 같은 cold-split 빌드에서 조용히 스킵됐음.
+- `termwrap-dll` 의 DefPolicy / PropertyDevice 패치 모듈은 이제 순수
+  `patcher::analyze` 분석기를 감싸는 얇은 unsafe 래퍼임.
+
+### 추가됨
+- `offset-finder --dry-run` (`-d`): 각 패치에 대해 포착한 패치 위치와
+  실제로 기록될 바이트(또는 NOT FOUND)를 보고하는 자가 진단 기능.
+  `--assert-all` 은 `--dry-run` 을 포함하며, 이제 패치 위치를 찾지
+  못하면 실패함.
+
+### 제거됨
+- `umwrap-dll` x64 레거시 slc.dll 경로가 빌드 의존적인
+  `or [rsp+0x40], 1` 스택 슬롯 템플릿을 더 이상 기록하지 않음. 깨지기
+  쉬운 하드코딩 쓰기를 log-and-skip 으로 대체해 빌드가 안 맞을 때
+  무관한 스택 슬롯을 손상시키지 않도록 함.
+
 ## [0.2.0] - 2026-05-13
 
 ### 추가됨

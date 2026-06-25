@@ -175,6 +175,14 @@ offset-finder --assert-all C:\Windows\System32\termsrv.dll
 - [ ] 종료 코드 0.
 - [ ] 모든 명명 문자열 resolve 됨 (`NOT_FOUND` 없음).
 - [ ] 모든 명명 함수가 xref 로 resolve 됨 (`NOT_FOUND` 없음).
+- [ ] `--dry-run` 으로 실행하거나(또는 이를 포함하는 `--assert-all` 에
+      의존) `[Patch Dry-Run]` 블록에 DefPolicy 가 resolve 된 라인이
+      표시되는지 확인, 예:
+      `def_policy: base=... value=... write_disp=... is_jnz=... patch_rva=... bytes=[...]`
+      — `def_policy: NOT FOUND` 가 **아니어야** 함.
+- [ ] `property_device` dry-run 은 의도적으로 건너뜀(런타임 GUID-walk 가
+      필요하기 때문) — `property_device dry-run: needs runtime walk —
+      skipped` 라인이 나오는 게 정상이며 실패가 아님.
 
 지원 OS 에서 위가 실패하면, 전체 stdout 과 termsrv.dll 버전
 (`(Get-Item termsrv.dll).VersionInfo`) 과 함께 patcher-team 티켓을

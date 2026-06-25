@@ -2,6 +2,8 @@ use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic};
 use patcher::patch::{bytecodes, debug_log, write_patch};
 use patcher::pe::LoadedPe;
 
+use super::util::read_image_bytes;
+
 /// Apply NonRDPPatch — patches CRemoteConnectionManager::IsAllowNonRDPStack.
 ///
 /// Finds a CALL to CSLQuery::IsAppServerInstalled and replaces it with:
@@ -15,7 +17,24 @@ pub unsafe fn apply(pe: &LoadedPe, func_rva: usize, target_rva: usize) -> bool {
     let base = pe.adjusted_base;
     let ip_start = base + func_rva;
     let target_abs = (base + target_rva) as u64;
-    let code = unsafe { std::slice::from_raw_parts(ip_start as *const u8, 256) };
+
+    // In-memory extent of the loaded termsrv.dll image. `func_rva` is the begin
+    // address of a (possibly chained-unwind-resolved) RUNTIME_FUNCTION; on a
+    // layout-shifted build that can resolve outside the mapping, and an
+    // unbounded 256-byte read there can fault and crash the Terminal Services
+    // svchost. Bound the read and degrade to "patch not found".
+    let (img_lo, img_hi) = pe.image_extent();
+
+    // SAFETY: bounded by `read_image_bytes`, which validates `ip_start` lies
+    // within `[img_lo, img_hi)` and clamps the read length to the bytes mapped
+    // after it; an out-of-image function start degrades to "patch not found".
+    let code = match read_image_bytes("NonRDPPatch", ip_start, 256, img_lo, img_hi) {
+        Some(c) => c,
+        None => {
+            debug_log("NonRDPPatch function start outside image\n");
+            return false;
+        }
+    };
 
     let bits = if cfg!(target_arch = "x86_64") { 64 } else { 32 };
     let mut decoder = Decoder::with_ip(bits, code, ip_start as u64, DecoderOptions::NONE);

@@ -9,11 +9,11 @@ RDP Wrapper rewritten in Rust.
 | Component | Description |
 |-----------|-------------|
 | **termwrap-dll** | Core RDP patching — multi-session support, policy bypass for Home/non-Server editions. 7 patch types: DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy, CSLQuery::Initialize |
-| **umwrap-dll** | USB/camera PnP device redirection for all SKUs (legacy + modern Windows) |
+| **umwrap-dll** | USB/camera PnP device redirection on modern (non-slc.dll) `umrdp.dll` builds. The legacy slc.dll path (older SKUs) is detected but skipped — it needs a build-specific stack-slot displacement that cannot be recovered dynamically |
 | **endpwrap-dll** | Audio recording redirection (TSAudioCaptureAllowed) |
-| **patcher** | Shared library — PE parsing, x86/x64 disassembly, ARM64 `.pdata` function scanning, runtime pattern matching, 18 bytecode patches |
+| **patcher** | Shared library — PE parsing, x86/x64 disassembly, ARM64 `.pdata` function scanning, runtime pattern matching, runtime patch-byte emission (`patcher::analyze` + `patcher::encode`) plus 18 fixed bytecode templates for the static patches |
 | **ARM64 support** | `aarch64-pc-windows-msvc` build target with experimental ARM64 `termwrap`/`umwrap`/`endpwrap` runtime patchers. Real Windows ARM64 validation is still required before calling it production-supported |
-| **offset-finder** | Standalone CLI tool for x86/x64/ARM64 offset detection (pelite-based, no PDB required) |
+| **offset-finder** | Standalone CLI tool for x86/x64/ARM64 offset detection (pelite-based, no PDB required). `--dry-run` (`-d`) reports each captured patch site + the exact bytes that would be written; `--assert-all` implies it and exits non-zero on any miss |
 | **rdprrap-installer** | Rust CLI installer/uninstaller — service registration, registry setup, firewall rules, cohort service restart, install-dir ACL hardening (replaces Delphi `RDPWInst.exe`) |
 | **rdprrap-check** | RDP connection tester — loopback `127.0.0.2` via `mstsc.exe`, NLA guard RAII, 44 disconnect-reason codes (replaces `RDPCheck.exe`) |
 | **rdprrap-conf** | Configuration GUI — native-windows-gui panel for diagnostics + runtime RDP settings (Enable/Port/SingleSession/HideUsers/AllowCustom/AuthMode/Shadow), replaces `RDPConf.exe` |
@@ -92,6 +92,18 @@ rdprrap-check.exe
 
 Manual install (without `rdprrap-installer.exe`) remains possible — copy the DLLs into `%ProgramFiles%\RDP Wrapper\` and merge the appropriate registry file. See the original [TermWrap](https://github.com/llccd/TermWrap) for the DLL interface reference.
 
+To self-diagnose a `termsrv.dll` before (or after) installing, run the standalone offset finder:
+
+```powershell
+# Report every captured patch site and the exact bytes that would be
+# written (or NOT FOUND) — purely diagnostic, no writes.
+offset-finder.exe --dry-run C:\Windows\System32\termsrv.dll
+
+# Exit non-zero if any required string/function/patch site is missing.
+# --assert-all implies --dry-run.
+offset-finder.exe --assert-all C:\Windows\System32\termsrv.dll
+```
+
 ## Project Structure
 
 ```
@@ -127,15 +139,27 @@ rdprrap/
    - **x86**: Scan `.text` for function prologues (`8B FF 55 8B EC`) → follow branches → match PUSH/MOV immediates to string RVAs
    - **ARM64**: `.pdata` function ranges plus ADR/ADRP+ADD string references locate policy checks. `termwrap` patches ARM64 DefPolicy, SingleUser, LocalOnly, AppServer/NonRDP, PropertyDevice, and SL policy paths with ARM64-specific bytecodes; `umwrap` patches PnP/camera BL calls to `mov w0,#1`; `endpwrap` patches the referenced audio-capture function start to `mov w0,#1; ret`.
 
+### Resilience / Why rdprrap
+
+rdprrap needs **no PDB symbols and no hand-maintained per-build offset
+table**. Patch sites are located symbol-free (string scan + disassembly +
+xref) and, for DefPolicy/PropertyDevice, the struct displacement, register,
+and branch direction are captured *dynamically at runtime* and the patch
+bytes are emitted by the `patcher::encode` instruction encoder. Because
+nothing is keyed to a fixed offset or a fixed byte template, the patches
+keep working across `termsrv.dll` struct-layout shifts that ship with new
+Windows builds — there is no offset map to update when Microsoft moves a
+field.
+
 ## Patch Types (termsrv.dll)
 
 | Patch | Purpose | Mechanism |
 |-------|---------|-----------|
-| DefPolicyPatch | Allow multiple RDP sessions | Replace CMP at offset 0x63c/0x320 with `mov reg, 0x100` |
+| DefPolicyPatch | Allow multiple RDP sessions | `patcher::analyze` disassembles the policy function and captures the struct displacement, register, and branch direction at runtime; `patcher::encode` then emits the `mov reg, 0x100` + `mov [base+disp32], reg` bytes for the captured layout, so the patch survives struct-offset shifts |
 | SingleUserPatch | Disable per-user session limit | NOP out VerifyVersionInfoW call or CMP instruction |
 | LocalOnlyPatch | Remove local-only license restriction | Convert JZ to unconditional JMP |
 | NonRDPPatch | Allow non-RDP stack | Replace CALL with `inc [ecx]; xor eax,eax` |
-| PropertyDevicePatch | Enable PnP device redirection | Replace SHR+AND with `mov reg, 0` |
+| PropertyDevicePatch | Enable PnP device redirection | `patcher::analyze` captures the destination register dynamically at runtime; `patcher::encode` emits the `mov reg, 0` for that register, so the patch survives instruction/register changes across builds |
 | SLPolicyPatch | Set SL policy variables to 1 | Direct memory write to bRemoteConnAllowed, bFUSEnabled, etc. |
 
 ## Testing
@@ -147,6 +171,12 @@ cargo fmt --check                                   # Format check
 ```
 
 CI runs automatically on push/PR: Linux check + Windows x64/x86 full build + ARM64 build/static artifact checks.
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---------|--------------|------------|
+| RDP multi-session worked, then stopped after a Windows update / new build | A `termsrv.dll` change moved a patch site so the patcher could not resolve it on the new build (the issue-#3 class of regression) | Run `offset-finder --dry-run C:\Windows\System32\termsrv.dll` and look at the `[Patch Dry-Run]` block. A `NOT FOUND` line tells you exactly which patch site failed to resolve. Capture that output plus the `termsrv.dll` version and file it for triage. |
 
 ## Contributing
 

@@ -9,11 +9,11 @@ Rust로 재작성한 RDP Wrapper.
 | 컴포넌트 | 설명 |
 |-----------|------|
 | **termwrap-dll** | 핵심 RDP 패칭 — 다중 세션 지원, Home/비서버 에디션 정책 우회. 7가지 패치: DefPolicy, SingleUser, LocalOnly, NonRDP, PropertyDevice, SLPolicy, CSLQuery::Initialize |
-| **umwrap-dll** | 모든 SKU에서 USB/카메라 PnP 장치 리다이렉션 (레거시 + 모던 Windows) |
+| **umwrap-dll** | 모던(non-slc.dll) `umrdp.dll` 빌드에서 USB/카메라 PnP 장치 리다이렉션. 레거시 slc.dll 경로(구형 SKU)는 탐지는 하지만 건너뜀 — 동적으로 복구할 수 없는 빌드별 스택 슬롯 displacement 가 필요함 |
 | **endpwrap-dll** | 오디오 녹음 리다이렉션 (TSAudioCaptureAllowed) |
-| **patcher** | 공유 라이브러리 — PE 파싱, x86/x64 디스어셈블리, ARM64 `.pdata` 함수 스캔, 런타임 패턴 매칭, 바이트코드 패치 18개 |
+| **patcher** | 공유 라이브러리 — PE 파싱, x86/x64 디스어셈블리, ARM64 `.pdata` 함수 스캔, 런타임 패턴 매칭, 런타임 패치 바이트 생성(`patcher::analyze` + `patcher::encode`) 및 정적 패치용 고정 바이트코드 템플릿 18개 |
 | **ARM64 지원** | `aarch64-pc-windows-msvc` 빌드 타깃과 실험적 ARM64 `termwrap`/`umwrap`/`endpwrap` 런타임 패처. production 지원으로 부르기 전 실제 Windows ARM64 검증 필요 |
-| **offset-finder** | x86/x64/ARM64 독립 실행형 CLI 오프셋 탐색 도구 (pelite 기반, PDB 불필요) |
+| **offset-finder** | x86/x64/ARM64 독립 실행형 CLI 오프셋 탐색 도구 (pelite 기반, PDB 불필요). `--dry-run` (`-d`) 은 포착한 각 패치 위치와 실제로 기록될 바이트를 보고; `--assert-all` 은 이를 포함하며 하나라도 못 찾으면 non-zero 종료 |
 | **rdprrap-installer** | 설치/제거 CLI — 서비스 등록, 레지스트리, 방화벽(TCP+UDP 3389), 코호트 서비스 재시작, 설치 디렉토리 ACL 강화 (Delphi `RDPWInst.exe` 대체) |
 | **rdprrap-check** | RDP 연결 테스터 — `mstsc.exe`로 127.0.0.2 루프백 접속, NLA 가드 RAII, 44개 종료 사유 코드 (`RDPCheck.exe` 대체) |
 | **rdprrap-conf** | 설정 GUI — native-windows-gui 패널로 진단 + 런타임 RDP 설정(Enable/Port/SingleSession/HideUsers/AllowCustom/AuthMode/Shadow) 제어 (`RDPConf.exe` 대체) |
@@ -57,8 +57,12 @@ cargo build --release
 # 설치 디렉토리 ACL 부여(SYSTEM + LocalService), TermService 코호트 재시작
 rdprrap-installer.exe install --source <빌드된-DLL-디렉토리>
 
-# 현재 상태 확인
+# 현재 상태 확인 (ServiceDll, 레지스트리, 방화벽, termsrv.dll 버전)
 rdprrap-installer.exe status
+
+# 설치 계약 출력 (경로, DLL 이름, 레지스트리 키+값, 방화벽 규칙)
+# — 순수 문서 출력, I/O 없음, 관리자 권한 불필요
+rdprrap-installer.exe plan
 
 # 제거 — ServiceDll, AllowMultipleTSSessions, fDenyTSConnections,
 # AddIns 원상복구 + 방화벽 규칙 제거
@@ -74,6 +78,7 @@ rdprrap-installer.exe uninstall
 | `--skip-firewall` | 방화벽 규칙 추가/제거 생략 |
 | `--skip-restart` | TermService 재시작 생략 (수동/재부팅 시 적용) |
 | `--disable-nla` | `UserAuthentication=0` 설정 (레거시 클라이언트용, 옵트인) |
+| `-i` / `-u` | install / uninstall 의 레거시 별칭 (RDPWInst 호환) |
 
 설치 후 두 개의 GUI를 `%ProgramFiles%\RDP Wrapper\`에서 실행:
 
@@ -86,6 +91,18 @@ rdprrap-check.exe
 ```
 
 수동 설치도 가능: DLL을 `%ProgramFiles%\RDP Wrapper\`에 복사하고 레지스트리 파일을 병합하세요. DLL 인터페이스 레퍼런스는 원본 [TermWrap](https://github.com/llccd/TermWrap) 참조.
+
+설치 전(또는 후) `termsrv.dll` 을 자가 진단하려면 독립 실행형 offset finder 를 실행:
+
+```powershell
+# 포착한 모든 패치 위치와 실제로 기록될 바이트(또는 NOT FOUND)를 보고
+# — 순수 진단용, 쓰기 없음.
+offset-finder.exe --dry-run C:\Windows\System32\termsrv.dll
+
+# 필요한 문자열/함수/패치 위치가 하나라도 없으면 non-zero 종료.
+# --assert-all 은 --dry-run 을 포함함.
+offset-finder.exe --assert-all C:\Windows\System32\termsrv.dll
+```
 
 ## 프로젝트 구조
 
@@ -122,15 +139,26 @@ rdprrap/
    - **x86**: `.text`에서 함수 프롤로그(`8B FF 55 8B EC`) 스캔 → 분기 추적 → PUSH/MOV 즉시값과 문자열 RVA 매칭
    - **ARM64**: `.pdata` 함수 범위와 ADR/ADRP+ADD 문자열 참조로 정책 체크를 찾음. `termwrap` 은 ARM64 DefPolicy, SingleUser, LocalOnly, AppServer/NonRDP, PropertyDevice, SL policy 경로를 ARM64 전용 바이트코드로 패치. `umwrap` 은 PnP/Camera BL 호출을 `mov w0,#1` 로, `endpwrap` 은 참조 함수 시작을 `mov w0,#1; ret` 로 패치.
 
+### 복원력 / rdprrap 인 이유
+
+rdprrap 은 **PDB 심볼도, 손으로 관리하는 빌드별 오프셋 테이블도 필요
+없습니다**. 패치 위치는 심볼 없이(문자열 스캔 + 디스어셈블리 + xref)
+찾고, DefPolicy/PropertyDevice 의 경우 struct displacement, 레지스터,
+분기 방향을 *런타임에 동적으로* 포착하며 패치 바이트는
+`patcher::encode` 명령어 인코더가 생성합니다. 고정 오프셋이나 고정
+바이트 템플릿에 묶인 것이 전혀 없으므로, 새 Windows 빌드와 함께
+배포되는 `termsrv.dll` struct 레이아웃 변동을 견디며 계속 동작합니다 —
+Microsoft 가 필드를 옮겨도 갱신할 오프셋 맵이 없습니다.
+
 ## 패치 종류 (termsrv.dll)
 
 | 패치 | 목적 | 메커니즘 |
 |------|------|----------|
-| DefPolicyPatch | 다중 RDP 세션 허용 | 오프셋 0x63c/0x320의 CMP를 `mov reg, 0x100`으로 교체 |
+| DefPolicyPatch | 다중 RDP 세션 허용 | `patcher::analyze` 가 정책 함수를 디스어셈블해 struct displacement, 레지스터, 분기 방향을 런타임에 포착하고, `patcher::encode` 가 포착한 레이아웃에 맞춰 `mov reg, 0x100` + `mov [base+disp32], reg` 바이트를 생성 — struct 오프셋 변동을 견딤 |
 | SingleUserPatch | 사용자별 세션 제한 비활성화 | VerifyVersionInfoW 호출 또는 CMP 명령어 NOP 처리 |
 | LocalOnlyPatch | 로컬 전용 라이선스 제한 해제 | JZ를 무조건 JMP로 변환 |
 | NonRDPPatch | 비-RDP 스택 허용 | CALL을 `inc [ecx]; xor eax,eax`로 교체 |
-| PropertyDevicePatch | PnP 장치 리다이렉션 활성화 | SHR+AND를 `mov reg, 0`으로 교체 |
+| PropertyDevicePatch | PnP 장치 리다이렉션 활성화 | `patcher::analyze` 가 목적지 레지스터를 런타임에 포착하고, `patcher::encode` 가 해당 레지스터에 대한 `mov reg, 0` 을 생성 — 빌드별 명령어/레지스터 변경을 견딤 |
 | SLPolicyPatch | SL 정책 변수를 1로 설정 | bRemoteConnAllowed, bFUSEnabled 등에 직접 메모리 쓰기 |
 
 ## 테스트
@@ -142,6 +170,12 @@ cargo fmt --check                                   # 포맷 체크
 ```
 
 CI는 push/PR 시 자동 실행: Linux 체크 + Windows x64/x86 풀 빌드 + ARM64 빌드/정적 산출물 체크.
+
+## 문제 해결
+
+| 증상 | 가능한 원인 | 대처 |
+|------|------------|------|
+| 멀티세션 RDP 가 잘 되다가 Windows 업데이트 / 새 빌드 후 멈춤 | `termsrv.dll` 변경으로 패치 위치가 이동해 새 빌드에서 패처가 해석하지 못함 (이슈 #3 부류 회귀) | `offset-finder --dry-run C:\Windows\System32\termsrv.dll` 을 실행하고 `[Patch Dry-Run]` 블록을 확인. `NOT FOUND` 라인이 어느 패치 위치가 해석에 실패했는지 정확히 알려줌. 그 출력과 `termsrv.dll` 버전을 함께 수집해 분류용으로 보고. |
 
 ## 기여
 

@@ -15,6 +15,22 @@ const ALLOW_PNP_BYTES: &[u8] =
 const ALLOW_CAMERA_BYTES: &[u8] =
     b"T\0e\0r\0m\0i\0n\0a\0l\0S\0e\0r\0v\0i\0c\0e\0s\0-\0D\0e\0v\0i\0c\0e\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0-\0L\0i\0c\0e\0n\0s\0e\0s\0-\0C\0a\0m\0e\0r\0a\0R\0e\0d\0i\0r\0e\0c\0t\0i\0o\0n\0A\0l\0l\0o\0w\0e\0d\0\0\0";
 
+/// Clamp a read length so `[addr, addr + len)` stays within the loaded image
+/// extent `[img_lo, img_hi)`.
+///
+/// Returns 0 when `addr` is outside the image, otherwise the smaller of `len`
+/// and the bytes mapped after `addr`. This bounds the exception-table-driven
+/// function-body reads on x64 so a malformed RUNTIME_FUNCTION (length running
+/// off the mapping, or a function near the end of the image) cannot read past
+/// the mapping and fault the svchost (SEC-CU-01).
+#[cfg(target_arch = "x86_64")]
+fn clamp_read_len(addr: usize, len: usize, img_lo: usize, img_hi: usize) -> usize {
+    if addr < img_lo || addr >= img_hi {
+        return 0;
+    }
+    len.min(img_hi.saturating_sub(addr))
+}
+
 /// Apply umrdp.dll patches for PnP and camera redirection.
 ///
 /// # Safety
@@ -114,13 +130,28 @@ mod x64 {
         };
 
         let adjusted = pe.adjusted_base;
+        // In-memory extent of the loaded umrdp.dll image. A RUNTIME_FUNCTION's
+        // begin/length comes from the exception table and is normally inside
+        // `.text`, but a malformed entry can report end < begin or a length
+        // that runs off the mapping; the read below is clamped to this span so
+        // an unbounded read cannot fault and crash the svchost (SEC-CU-01).
+        let (img_lo, img_hi) = pe.image_extent();
 
         for func in func_table.iter() {
             let begin = func.begin_address as usize;
-            let length = (func.end_address - func.begin_address) as usize;
-            // SAFETY: begin/length describe a function mapped inside the loaded PE.
-            let code =
-                unsafe { std::slice::from_raw_parts((adjusted + begin) as *const u8, length) };
+            // `saturating_sub`: a malformed exception entry could report
+            // end < begin; clamp to 0 rather than wrapping (debug panic /
+            // release OOB length).
+            let length = func.end_address.saturating_sub(func.begin_address) as usize;
+            let func_start = adjusted + begin;
+            // Clamp the read window to the bytes mapped after `func_start` so a
+            // function near the end of the image (or a malformed length) cannot
+            // read past the mapping.
+            let length = super::clamp_read_len(func_start, length, img_lo, img_hi);
+            // SAFETY: `func_start` is `adjusted_base + begin` for an exception
+            // table entry, and `length` is clamped to the bytes mapped after it
+            // within `[img_lo, img_hi)`, so the read stays inside the image.
+            let code = unsafe { std::slice::from_raw_parts(func_start as *const u8, length) };
             let mut decoder =
                 Decoder::with_ip(64, code, (adjusted + begin) as u64, DecoderOptions::NONE);
             let mut inst = Instruction::default();
@@ -144,7 +175,7 @@ mod x64 {
 
                     // Short-circuit: large function without camera string and not legacy
                     if remaining_len > 0x1000 && camera_rva.is_none() && !legacy {
-                        let bt = pe.backtrace_function(func);
+                        let bt = pe.resolve_chained_unwind_in_image(func);
                         let func_addr = adjusted + bt.begin_address as usize;
                         // SAFETY: func_addr is inside the loaded PE; threads suspended.
                         if let Err(e) =
@@ -186,23 +217,35 @@ mod x64 {
                                     }
                                 }
                             } else {
-                                // Legacy x64: look for TEST after CALL
+                                // Legacy x64 (umrdp.dll importing slc.dll): the
+                                // CALL is followed by a 2-byte register-form TEST.
                                 if search_decoder.can_decode() {
                                     search_decoder.decode_out(&mut search_inst);
                                     if search_inst.mnemonic() == Mnemonic::Test
                                         && search_inst.len() == 2
                                     {
-                                        // or dword ptr [rsp+0x40], 1; xor eax, eax
-                                        let legacy_patch: &[u8] =
-                                            &[0x83, 0x4C, 0x24, 0x40, 0x01, 0x31, 0xC0];
-                                        // SAFETY: call_ip inside loaded PE; threads suspended.
-                                        if let Err(e) =
-                                            unsafe { write_patch(call_ip, legacy_patch) }
-                                        {
-                                            debug_log(&format!(
-                                                "UmWrap: legacy PnP patch failed: {e}\n"
-                                            ));
-                                        }
+                                        // The previous implementation overwrote
+                                        // CALL+TEST with a hardcoded
+                                        // `or dword ptr [rsp+0x40], 1; xor eax,eax`.
+                                        // That `0x40` is a build-dependent stack
+                                        // slot displacement: it is the offset of a
+                                        // local the legacy gate reads later, and it
+                                        // shifts between Windows builds. It is *not*
+                                        // recoverable from the matched 2-byte
+                                        // register TEST (which carries no
+                                        // displacement), so writing a fixed `0x40`
+                                        // is a guess that corrupts an unrelated
+                                        // stack slot on any build whose layout
+                                        // differs. Mirroring the x86 legacy posture
+                                        // (and WORK_STATUS known limitations), we
+                                        // refuse to invent a displacement and leave
+                                        // the original behaviour in place.
+                                        debug_log(
+                                            "UmWrap: x64 legacy (slc.dll) PnP patch \
+                                             needs a build-specific stack slot that \
+                                             cannot be recovered dynamically; \
+                                             skipping\n",
+                                        );
                                     } else {
                                         continue;
                                     }
@@ -232,10 +275,17 @@ mod x64 {
         camera_rva: usize,
     ) -> bool {
         let adjusted = pe.adjusted_base;
+        let (img_lo, img_hi) = pe.image_extent();
         let begin = func.begin_address as usize;
-        let length = (func.end_address - func.begin_address) as usize;
-        // SAFETY: begin/length describe a function mapped inside the loaded PE.
-        let code = unsafe { std::slice::from_raw_parts((adjusted + begin) as *const u8, length) };
+        // `saturating_sub`: a malformed exception entry could report end < begin.
+        let length = func.end_address.saturating_sub(func.begin_address) as usize;
+        let func_start = adjusted + begin;
+        // Clamp the read window to the bytes mapped after `func_start`.
+        let length = super::clamp_read_len(func_start, length, img_lo, img_hi);
+        // SAFETY: `func_start` is `adjusted_base + begin` for an exception table
+        // entry, and `length` is clamped to the bytes mapped after it within
+        // `[img_lo, img_hi)`, so the read stays inside the loaded image.
+        let code = unsafe { std::slice::from_raw_parts(func_start as *const u8, length) };
         let mut decoder =
             Decoder::with_ip(64, code, (adjusted + begin) as u64, DecoderOptions::NONE);
         let mut inst = Instruction::default();
@@ -253,10 +303,21 @@ mod x64 {
                     continue;
                 }
 
-                let remaining = 16usize;
-                // SAFETY: decoder.ip() points into the same function body.
+                // Bytes left in the (already image-clamped) function body after
+                // the current instruction, matching the sibling PnP path so the
+                // read below cannot run past the mapping when the LEA sits near
+                // the end of the function/image (SEC-CU-01).
+                let remaining_len =
+                    length.saturating_sub((decoder.ip() as usize) - (adjusted + begin));
+                // SAFETY: `decoder.ip()` points into the same function body, and
+                // the read length is clamped to `remaining_len` (bytes mapped
+                // after it within `[img_lo, img_hi)`), so the read stays inside
+                // the loaded image.
                 let search_code = unsafe {
-                    std::slice::from_raw_parts(decoder.ip() as usize as *const u8, remaining)
+                    std::slice::from_raw_parts(
+                        decoder.ip() as usize as *const u8,
+                        16.min(remaining_len),
+                    )
                 };
                 let mut search =
                     Decoder::with_ip(64, search_code, decoder.ip(), DecoderOptions::NONE);
