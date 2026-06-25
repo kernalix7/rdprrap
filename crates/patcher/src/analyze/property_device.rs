@@ -488,6 +488,9 @@ mod tests {
     }
 
     // --- Alternate form via Jcc target: SHR 0x0c + AND 7 ---
+    // x64-only: the synthetic body is x64 machine code and the analyzer decodes
+    // with the host's `arch_bits()`, so this is gated off the x86 host target.
+    #[cfg(not(target_arch = "x86"))]
     #[test]
     fn alternate_form_via_jcc_target() {
         // Primary scan must NOT match (use a different shift before the Jcc), so
@@ -572,6 +575,8 @@ mod tests {
     }
 
     // --- patch_primary=false still lets the alternate form patch ---
+    // x64-only: synthetic x64 body decoded with the host `arch_bits()`.
+    #[cfg(not(target_arch = "x86"))]
     #[test]
     fn alternate_still_applies_when_primary_suppressed() {
         // Primary SHR(0x0b)+AND first, then a Jcc to an alternate site. With
