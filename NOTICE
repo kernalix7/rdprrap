@@ -153,6 +153,9 @@ which covers upstream *source-level* derivations.
    project's copyrighted material, but attribution is acknowledged here
    out of respect for the upstream work.
 
+   The full MIT license text is bundled with release artifacts at
+   vendor/licenses/LICENSE.TermWrap.MIT.
+
 
 --------------------------------------------------------------------------------
 3) llccd/RDPWrapOffsetFinder  —  MIT License
@@ -188,4 +191,7 @@ which covers upstream *source-level* derivations.
          PDB-free termsrv.dll offset discovery via .rdata string scan,
          x64 exception-table xref, and x86 prologue-scan with
          branch-following priority queue.
+
+   The full MIT license text is bundled with release artifacts at
+   vendor/licenses/LICENSE.RDPWrapOffsetFinder.MIT.
 --------------------------------------------------------------------------------
